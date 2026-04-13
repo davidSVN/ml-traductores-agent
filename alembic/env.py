@@ -17,10 +17,14 @@ from src.db.models import Base  # noqa: E402
 
 target_metadata = Base.metadata
 
-# Override sqlalchemy.url with DATABASE_URL env var if present
-database_url = os.environ.get("DATABASE_URL")
-if database_url:
-    config.set_main_option("sqlalchemy.url", database_url)
+# Assemble DATABASE_URL from individual env vars (matches src/config.py)
+db_host = os.environ.get("DB_HOST", "localhost")
+db_port = os.environ.get("DB_PORT", "5432")
+db_name = os.environ.get("DB_NAME", "ml_traductores")
+db_user = os.environ.get("DB_USER", "mluser")
+db_password = os.environ.get("DB_PASSWORD", "mlpassword")
+database_url = f"postgresql+asyncpg://{db_user}:{db_password}@{db_host}:{db_port}/{db_name}"
+config.set_main_option("sqlalchemy.url", database_url)
 
 
 def run_migrations_offline() -> None:

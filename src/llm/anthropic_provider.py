@@ -3,6 +3,7 @@ import os
 
 from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
+from langchain_core.tracers import LangChainTracer
 
 from src.config import get_settings
 from src.llm.schemas import LLMResponse, ToolCall, ToolDefinition
@@ -14,10 +15,16 @@ settings = get_settings()
 
 class AnthropicProvider:
     def __init__(self) -> None:
-        # Configure LangSmith tracing via env vars
-        os.environ["LANGSMITH_API_KEY"] = settings.langsmith_api_key
+        # Configure LangSmith tracing — set both naming conventions
+        # langchain-anthropic checks LANGCHAIN_* vars; newer langsmith SDK checks LANGSMITH_*
+        project = settings.langsmith_project.strip('"').strip("'")
+        os.environ["LANGCHAIN_TRACING_V2"] = settings.langsmith_tracing
+        os.environ["LANGCHAIN_API_KEY"] = settings.langsmith_api_key
+        os.environ["LANGCHAIN_PROJECT"] = project
+        os.environ["LANGCHAIN_ENDPOINT"] = settings.langsmith_endpoint
         os.environ["LANGSMITH_TRACING"] = settings.langsmith_tracing
-        os.environ["LANGSMITH_PROJECT"] = settings.langsmith_project
+        os.environ["LANGSMITH_API_KEY"] = settings.langsmith_api_key
+        os.environ["LANGSMITH_PROJECT"] = project
         os.environ["LANGSMITH_ENDPOINT"] = settings.langsmith_endpoint
 
         self.llm = ChatAnthropic(
@@ -61,7 +68,8 @@ class AnthropicProvider:
             ]
             llm = self.llm.bind_tools(tool_schemas)
 
-        response = await llm.ainvoke(lc_messages)
+        tracer = LangChainTracer(project_name=settings.langsmith_project.strip('"').strip("'"))
+        response = await llm.ainvoke(lc_messages, config={"callbacks": [tracer]})
 
         tool_calls: list[ToolCall] = []
         if hasattr(response, "tool_calls") and response.tool_calls:

@@ -1,4 +1,5 @@
 import logging
+from contextlib import asynccontextmanager
 
 import uvicorn
 from fastapi import FastAPI
@@ -10,14 +11,15 @@ settings = get_settings()
 logging.basicConfig(level=settings.log_level)
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="ML Traductores Agent")
 
-
-@app.on_event("startup")
-async def startup():
+@asynccontextmanager
+async def lifespan(app: FastAPI):
     import src.tools  # noqa: F401 — registers all tools via @register_tool decorators
     logger.info("Tools registered: startup complete")
+    yield
 
+
+app = FastAPI(title="ML Traductores Agent", lifespan=lifespan)
 
 from src.api import webhooks  # noqa: E402
 

@@ -13,9 +13,9 @@ GRAPH_API_BASE = "https://graph.facebook.com"
 
 class WhatsAppClient:
     def __init__(self) -> None:
-        self._token = settings.whatsapp_token
-        self._phone_id = settings.whatsapp_phone_number_id
-        self._api_version = settings.whatsapp_api_version
+        self._token = settings.meta_access_token
+        self._phone_id = settings.meta_phone_number_id
+        self._api_version = settings.meta_api_version
         self._base_url = f"{GRAPH_API_BASE}/{self._api_version}/{self._phone_id}/messages"
         self._client = httpx.AsyncClient(timeout=30.0)
 
