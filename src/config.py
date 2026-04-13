@@ -24,8 +24,9 @@ class Settings(BaseSettings):
 
     # LangSmith
     langsmith_api_key: str = ""
-    langsmith_tracing: str = "false"
-    langsmith_project: str = "ml-traductores-agent"
+    langsmith_tracing: str = "true"        # LANGSMITH_TRACING — langsmith SDK
+    langchain_tracing_v2: str = "true"     # LANGCHAIN_TRACING_V2 — langchain callbacks
+    langsmith_project: str = "tracer-ml-agent"
     langsmith_endpoint: str = "https://api.smith.langchain.com"
 
     # Meta / WhatsApp Business API

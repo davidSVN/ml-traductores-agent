@@ -2,6 +2,7 @@ import json
 import logging
 from pathlib import Path
 
+from langsmith import traceable
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.llm.router import LLMRouter
@@ -24,6 +25,7 @@ class AgentOrchestrator:
     def __init__(self) -> None:
         self.llm = LLMRouter(provider="anthropic")
 
+    @traceable(name="handle_message", run_type="chain")
     async def handle_message(
         self,
         conversation_history: list[dict],
@@ -51,6 +53,7 @@ class AgentOrchestrator:
 
         return response.content
 
+    @traceable(name="handle_tool_calls", run_type="chain")
     async def _handle_tool_calls(
         self,
         response: LLMResponse,
@@ -66,10 +69,14 @@ class AgentOrchestrator:
             if not response.tool_calls:
                 break
 
-            # Add assistant's tool_use turn to history
+            # Add assistant's tool_use turn to history (must include tool_calls for Anthropic)
             current_history.append({
                 "role": "assistant",
                 "content": response.content or "",
+                "tool_calls": [
+                    {"id": tc.id, "name": tc.name, "arguments": tc.arguments}
+                    for tc in response.tool_calls
+                ],
             })
 
             # Execute each tool and append results

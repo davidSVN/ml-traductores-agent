@@ -20,6 +20,12 @@ services:
     ports:
       - "8000:8000"
     env_file: .env
+    environment:
+      # LangChain callback system reads LANGCHAIN_* vars — map from LANGSMITH_* in .env
+      LANGCHAIN_TRACING_V2: "true"
+      LANGCHAIN_API_KEY: "${LANGSMITH_API_KEY}"
+      LANGCHAIN_PROJECT: "${LANGSMITH_PROJECT:-tracer-ml-agent}"
+      LANGCHAIN_ENDPOINT: "${LANGSMITH_ENDPOINT:-https://api.smith.langchain.com}"
     volumes:
       - .:/app
     depends_on:

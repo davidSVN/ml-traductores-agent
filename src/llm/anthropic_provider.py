@@ -1,9 +1,7 @@
 import logging
-import os
 
 from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
-from langchain_core.tracers import LangChainTracer
 
 from src.config import get_settings
 from src.llm.schemas import LLMResponse, ToolCall, ToolDefinition
@@ -15,18 +13,6 @@ settings = get_settings()
 
 class AnthropicProvider:
     def __init__(self) -> None:
-        # Configure LangSmith tracing — set both naming conventions
-        # langchain-anthropic checks LANGCHAIN_* vars; newer langsmith SDK checks LANGSMITH_*
-        project = settings.langsmith_project.strip('"').strip("'")
-        os.environ["LANGCHAIN_TRACING_V2"] = settings.langsmith_tracing
-        os.environ["LANGCHAIN_API_KEY"] = settings.langsmith_api_key
-        os.environ["LANGCHAIN_PROJECT"] = project
-        os.environ["LANGCHAIN_ENDPOINT"] = settings.langsmith_endpoint
-        os.environ["LANGSMITH_TRACING"] = settings.langsmith_tracing
-        os.environ["LANGSMITH_API_KEY"] = settings.langsmith_api_key
-        os.environ["LANGSMITH_PROJECT"] = project
-        os.environ["LANGSMITH_ENDPOINT"] = settings.langsmith_endpoint
-
         self.llm = ChatAnthropic(
             model="claude-sonnet-4-6",
             api_key=settings.anthropic_api_key,
@@ -47,7 +33,15 @@ class AnthropicProvider:
             if role == "user":
                 lc_messages.append(HumanMessage(content=content))
             elif role == "assistant":
-                lc_messages.append(AIMessage(content=content))
+                tool_calls_data = msg.get("tool_calls", [])
+                if tool_calls_data:
+                    lc_tool_calls = [
+                        {"id": tc["id"], "name": tc["name"], "args": tc["arguments"], "type": "tool_call"}
+                        for tc in tool_calls_data
+                    ]
+                    lc_messages.append(AIMessage(content=content, tool_calls=lc_tool_calls))
+                else:
+                    lc_messages.append(AIMessage(content=content))
             elif role == "tool":
                 lc_messages.append(
                     ToolMessage(
@@ -68,8 +62,8 @@ class AnthropicProvider:
             ]
             llm = self.llm.bind_tools(tool_schemas)
 
-        tracer = LangChainTracer(project_name=settings.langsmith_project.strip('"').strip("'"))
-        response = await llm.ainvoke(lc_messages, config={"callbacks": [tracer]})
+        # LangChain auto-traces via LANGCHAIN_TRACING_V2 + LANGCHAIN_API_KEY env vars (set by Docker)
+        response = await llm.ainvoke(lc_messages)
 
         tool_calls: list[ToolCall] = []
         if hasattr(response, "tool_calls") and response.tool_calls:

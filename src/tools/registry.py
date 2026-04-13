@@ -2,6 +2,8 @@ import logging
 from collections.abc import Callable
 from typing import Any
 
+from langsmith import traceable
+
 from src.llm.schemas import ToolDefinition
 
 logger = logging.getLogger(__name__)
@@ -24,6 +26,7 @@ def get_tool_definitions(names: list[str] | None = None) -> list[ToolDefinition]
     return [_REGISTRY[n][1] for n in names if n in _REGISTRY]
 
 
+@traceable(name="execute_tool", run_type="tool")
 async def execute_tool(name: str, arguments: dict, **extra: Any) -> Any:
     if name not in _REGISTRY:
         raise ValueError(f"Tool not found: {name}")
