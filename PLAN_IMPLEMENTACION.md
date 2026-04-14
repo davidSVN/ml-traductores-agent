@@ -414,6 +414,21 @@ ml-traductores-agent/
 ### Fase 2 — Cotización Automática (Semana 3-4)
 **Objetivo:** El agente calcula precios, genera Word/PDF, y lo envía por WhatsApp.
 
+## User Review Required
+
+> [!IMPORTANT]
+> He detectado que el esquema de la base de datos en RDS no coincide con los modelos de Python en el repositorio. Específicamente, la tabla `tarifas_alquiler_equipos` tiene una columna llamada `precio_proveedor` en lugar de `precio_base`. Esto está causando que el código falle al intentar consultar equipos.
+> 
+> Procederé a ajustar el modelo `TarifaAlquilerEquipo` para que coincida con la base de datos actual y así poder completar la verificación.
+
+## Proposed Changes
+
+#### [MODIFY] `src/db/models.py`
+Ajustaré el nombre de la columna `precio_base` a `precio_proveedor` en la clase `TarifaAlquilerEquipo` para sincronizar con RDS.
+
+#### [DONE] `src/templates/cotizacion_v2.docx`
+Ya copié el archivo desde `sql_reference/Formato_Cotizaciones_v2.docx` a `src/templates/cotizacion_v2.docx`.
+
 | Paso | Qué hacer | Archivos |
 |------|-----------|----------|
 | 2.1 | Crear `src/tools/db_tarifas.py` — `calcular_precio`: recibe servicios, consulta tarifas en DB, aplica lógica de descuentos por historial, devuelve desglose. | `src/tools/` |

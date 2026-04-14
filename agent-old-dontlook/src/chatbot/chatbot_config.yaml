@@ -1,0 +1,15 @@
+# Configuracion central del chatbot - prompts, modelos y skills
+# Cambiar el modelo es tan simple como editar el campo "name" o "provider"
+
+prompts:
+  chatbot_system:
+    file: "prompts/chatbot_system.md"
+    model:
+      provider: "openai"        # "openai" | "anthropic"
+      name: "gpt-4o-mini"
+      temperature: 0.3
+      max_tokens: null          # null = default del provider
+
+skills:
+  base_dir: "skills"            # relativo a chatbot/
+  fallback_dir: null            # para multi-agente futuro

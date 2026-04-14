@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 import uvicorn
 from fastapi import FastAPI
 
+from src.agent.graph import build_graph
 from src.config import get_settings
 
 settings = get_settings()
@@ -14,9 +15,10 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    import src.tools  # noqa: F401 — registers all tools via @register_tool decorators
-    logger.info("Tools registered: startup complete")
-    yield
+    async with build_graph(settings.database_url) as graph:
+        app.state.graph = graph
+        logger.info("LangGraph agent ready")
+        yield
 
 
 app = FastAPI(title="ML Traductores Agent", lifespan=lifespan)
@@ -24,6 +26,11 @@ app = FastAPI(title="ML Traductores Agent", lifespan=lifespan)
 from src.api import webhooks  # noqa: E402
 
 app.include_router(webhooks.router)
+
+
+@app.get("/health")
+async def health():
+    return {"status": "ok"}
 
 
 if __name__ == "__main__":

@@ -1,0 +1,25 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pip install:*)",
+      "Bash(python3 -m pip install alembic sqlalchemy asyncpg pydantic-settings)",
+      "Bash(cmd.exe /c \"where python\")",
+      "Bash(cmd.exe /c \"python --version\")",
+      "Bash(cmd.exe /c \"py --version\")",
+      "Bash(cmd.exe /c \"where py\")",
+      "Bash(del src\\\\agent\\\\orchestrator.py)",
+      "Bash(del src\\\\agent\\\\conversation.py)",
+      "Bash(docker compose:*)",
+      "Bash(curl -s -X POST http://localhost:8000/webhook/whatsapp -H \"Content-Type: application/json\" -d \"{\\\\\"entry\\\\\":[{\\\\\"changes\\\\\":[{\\\\\"value\\\\\":{\\\\\"messages\\\\\":[{\\\\\"type\\\\\":\\\\\"text\\\\\",\\\\\"from\\\\\":\\\\\"573001234567\\\\\",\\\\\"id\\\\\":\\\\\"test_msg_001\\\\\",\\\\\"text\\\\\":{\\\\\"body\\\\\":\\\\\"Hola\\\\\"}}]}}]}]}\")",
+      "Bash(curl -s -X POST http://localhost:8000/webhook/whatsapp -H \"Content-Type: application/json\" -d \"{\\\\\"entry\\\\\":[{\\\\\"changes\\\\\":[{\\\\\"value\\\\\":{\\\\\"messages\\\\\":[{\\\\\"type\\\\\":\\\\\"text\\\\\",\\\\\"from\\\\\":\\\\\"573001234567\\\\\",\\\\\"id\\\\\":\\\\\"test_msg_003\\\\\",\\\\\"text\\\\\":{\\\\\"body\\\\\":\\\\\"Necesito interpretacion simultanea para una conferencia\\\\\"}}]}}]}]}\")",
+      "Bash(curl -s -X POST http://localhost:8000/webhook/whatsapp -H \"Content-Type: application/json\" -d \"{\\\\\"entry\\\\\":[{\\\\\"changes\\\\\":[{\\\\\"value\\\\\":{\\\\\"messages\\\\\":[{\\\\\"type\\\\\":\\\\\"text\\\\\",\\\\\"from\\\\\":\\\\\"573001111111\\\\\",\\\\\"id\\\\\":\\\\\"lookup_test_001\\\\\",\\\\\"text\\\\\":{\\\\\"body\\\\\":\\\\\"Hola buenas\\\\\"}}]}}]}]}\")",
+      "Bash(docker exec ml-traductores-agent-app-1 python -c ':*)",
+      "Bash(docker cp:*)",
+      "Bash(dir \"C:\\\\Users\\\\david.vasquez\\\\Documents\\\\personal\\\\ia para empresas\\\\catizaciones-ml-traductores\\\\ml-traductores-agent\\\\COT-TEST-28.pdf\")",
+      "Bash(curl -s -X POST http://localhost:8000/webhook/whatsapp -H 'Content-Type: application/json' -d '{:*)",
+      "Bash(docker exec ml-traductores-agent-postgres-1 psql -U postgres -d ml_traductores -c ':*)",
+      "Bash(docker exec ml-traductores-agent-postgres-1 psql -U ml_user -d ml_traductores -c ':*)",
+      "Bash(docker exec:*)"
+    ]
+  }
+}

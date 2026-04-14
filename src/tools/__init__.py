@@ -1,1 +1,2 @@
-import src.tools.db_cliente  # noqa: F401 — registers tools via @register_tool decorators
+# Tools are imported directly in src/agent/nodes.py and src/agent/graph.py.
+# This file kept for package structure.

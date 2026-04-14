@@ -3,10 +3,10 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import PlainTextResponse
+from langchain_core.messages import HumanMessage
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.agent.orchestrator import AgentOrchestrator
 from src.config import get_settings
 from src.db.engine import get_db
 from src.db.models import Conversacion, Mensaje
@@ -16,8 +16,6 @@ logger = logging.getLogger(__name__)
 settings = get_settings()
 
 router = APIRouter(prefix="/webhook", tags=["webhook"])
-
-orchestrator = AgentOrchestrator()
 wa_client = WhatsAppClient()
 
 
@@ -53,7 +51,7 @@ async def receive_message(request: Request, db: AsyncSession = Depends(get_db)):
         logger.info(f"Duplicate message ignored: {wa_msg_id}")
         return {"status": "duplicate"}
 
-    # Get or create conversation
+    # Get or create conversation (for dashboard / mensajes table)
     conv_result = await db.execute(
         select(Conversacion).where(Conversacion.telefono_whatsapp == phone).limit(1)
     )
@@ -64,7 +62,7 @@ async def receive_message(request: Request, db: AsyncSession = Depends(get_db)):
         db.add(conversacion)
         await db.flush()
 
-    # Save incoming message
+    # Save incoming message to mensajes table (for dashboard)
     msg_cliente = Mensaje(
         conversacion_id=conversacion.id,
         origen="cliente",
@@ -75,27 +73,27 @@ async def receive_message(request: Request, db: AsyncSession = Depends(get_db)):
     db.add(msg_cliente)
     await db.flush()
 
-    # Load last 50 messages as conversation history
-    hist_result = await db.execute(
-        select(Mensaje)
-        .where(Mensaje.conversacion_id == conversacion.id)
-        .order_by(Mensaje.created_at.desc())
-        .limit(50)
-    )
-    mensajes_db = list(reversed(hist_result.scalars().all()))
+    # Run LangGraph — thread_id ties this to the conversation history in the checkpointer
+    graph = request.app.state.graph
+    config = {"configurable": {"thread_id": f"wa_{phone}"}}
 
-    history = [
+    result = await graph.ainvoke(
         {
-            "role": "user" if m.origen == "cliente" else "assistant",
-            "content": m.contenido,
-        }
-        for m in mensajes_db
-    ]
+            "messages": [HumanMessage(content=text)],
+            "phone": phone,
+            "conversacion_id": conversacion.id,
+        },
+        config=config,
+    )
 
-    # Run agent
-    respuesta = await orchestrator.handle_message(history, db, phase="inicial")
+    respuesta = result["messages"][-1].content
 
-    # Save agent response
+    # Update conversation link to client if resolved by LangGraph
+    cliente_id = result.get("cliente_id")
+    if cliente_id and not conversacion.cliente_id:
+        conversacion.cliente_id = cliente_id
+
+    # Save agent response to mensajes table (for dashboard)
     msg_agente = Mensaje(
         conversacion_id=conversacion.id,
         origen="agente",
