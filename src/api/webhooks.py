@@ -1,3 +1,4 @@
+import datetime
 import logging
 from typing import Any
 
@@ -73,6 +74,12 @@ async def receive_message(request: Request, db: AsyncSession = Depends(get_db)):
     db.add(msg_cliente)
     await db.flush()
 
+    # Update conversation summary with incoming message
+    now = datetime.datetime.now(datetime.timezone.utc)
+    conversacion.ultimo_mensaje_at = now
+    conversacion.ultimo_mensaje_preview = text[:100]
+    conversacion.mensajes_no_leidos = (conversacion.mensajes_no_leidos or 0) + 1
+
     # Run LangGraph — thread_id ties this to the conversation history in the checkpointer
     graph = request.app.state.graph
     config = {"configurable": {"thread_id": f"wa_{phone}"}}
@@ -102,9 +109,14 @@ async def receive_message(request: Request, db: AsyncSession = Depends(get_db)):
     )
     db.add(msg_agente)
 
+    # Update conversation summary with agent response
+    conversacion.ultimo_mensaje_at = datetime.datetime.now(datetime.timezone.utc)
+    conversacion.ultimo_mensaje_preview = respuesta[:100]
+
     # Send via WhatsApp
     await wa_client.send_text(phone, respuesta)
 
+    await db.commit()
     return {"status": "ok"}
 
 
