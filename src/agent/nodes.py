@@ -109,14 +109,15 @@ async def lookup_contact_node(state: AgentState) -> dict:
         return {}
 
     contacto, cliente = row
+    nombre_fmt = contacto.nombre_completo.title() if contacto.nombre_completo else ""
     logger.info(
         f"lookup_contact: phone={phone} → cliente_id={cliente.id} "
-        f"contacto={contacto.nombre_completo!r} empresa={cliente.nombre_empresa!r}"
+        f"contacto={nombre_fmt!r} empresa={cliente.nombre_empresa!r}"
     )
     return {
         "cliente_id": cliente.id,
         "contacto_id": contacto.id,
-        "nombre": contacto.nombre_completo,
+        "nombre": nombre_fmt,
         "empresa": cliente.nombre_empresa,
         "email": contacto.email,
         "cargo": contacto.cargo,

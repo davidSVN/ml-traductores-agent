@@ -153,7 +153,7 @@ async def crear_cliente(
 
         contacto = Contacto(
             cliente_id=cliente.id,
-            nombre_completo=contacto_nombre,
+            nombre_completo=contacto_nombre.strip().title(),
             email=contacto_email or None,
             telefono=contacto_telefono or None,
             cargo=contacto_cargo or None,

@@ -4,8 +4,9 @@ Consulta tarifas reales de la DB, aplica reglas de pricing y crea el borrador.
 NO depende de LangGraph — es Python puro invocable desde tools o tests.
 """
 import logging
+import re
 import unicodedata
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 
 from sqlalchemy import cast, Date, func, or_, select
@@ -73,7 +74,8 @@ async def calcular_borrador(
     num_dias: int = 1,
     ubicacion: str = "",
     horario: str = "",
-    fecha_str: str = "",
+    fecha_inicio: str = "",
+    fecha_fin: str = "",
 ) -> dict:
     """
     Calcula el precio de la cotización y persiste el borrador en DB.
@@ -88,6 +90,20 @@ async def calcular_borrador(
         total_formateado, exento_iva, validez_oferta, forma_pago.
         En caso de error retorna {"error": True, "mensaje": str}.
     """
+    # ── Regla: 2 intérpretes obligatorio para sesiones > 1.5 h ────────────────
+    nota_dos_interpretes = ""
+    horas_por_dia = cantidad / max(num_dias, 1) if num_dias else cantidad
+    es_simultanea = "simultanea" in tipo_servicio or "simultánea" in tipo_servicio
+    if es_simultanea and horas_por_dia > 1.5 and num_interpretes < 2:
+        num_interpretes = 2
+        nota_dos_interpretes = (
+            "Se asignaron 2 intérpretes simultáneos (norma profesional para sesiones > 1.5 h)."
+        )
+
+    # ── Parseo de fechas (YYYY-MM-DD) ─────────────────────────────────────────
+    fecha_inicio_date: date | None = _parsear_fecha(fecha_inicio)
+    fecha_fin_date: date | None = _parsear_fecha(fecha_fin) or fecha_inicio_date
+
     async with async_session_factory() as db:
         # 1. Cargar cliente
         cliente = await db.get(Cliente, cliente_id)
@@ -130,6 +146,8 @@ async def calcular_borrador(
         )
         if num_interpretes > 1:
             descripcion_principal += f" ({num_interpretes} intérpretes)"
+        if nota_dos_interpretes:
+            descripcion_principal += f" | {nota_dos_interpretes}"
 
         # lineas_data: lista de dicts para construir LineaCotizacion
         # IMPORTANTE: servicio_id es NOT NULL en RDS → siempre se hereda del servicio principal
@@ -149,6 +167,8 @@ async def calcular_borrador(
                 "num_interpretes": num_interpretes,
                 "num_dias": num_dias,
                 "num_equipos": None,
+                "fecha_inicio": fecha_inicio_date,
+                "fecha_fin": fecha_fin_date,
             }
         ]
 
@@ -178,6 +198,8 @@ async def calcular_borrador(
                     "num_interpretes": None,
                     "num_dias": num_dias,
                     "num_equipos": num_receptores,
+                    "fecha_inicio": fecha_inicio_date,
+                    "fecha_fin": fecha_fin_date,
                 })
             else:
                 equipo_notas = (
@@ -247,6 +269,8 @@ async def calcular_borrador(
                 num_dias=l.get("num_dias"),
                 num_equipos=l.get("num_equipos"),
                 descripcion_generada=l["descripcion_generada"],
+                fecha_servicio_inicio=l.get("fecha_inicio"),
+                fecha_servicio_fin=l.get("fecha_fin"),
                 orden=i,
             ))
 
@@ -299,10 +323,29 @@ async def calcular_borrador(
             "exento_iva": cliente.exento_iva,
             "validez_oferta": VALIDEZ_OFERTA,
             "forma_pago": FORMA_PAGO,
+            "fecha_inicio": fecha_inicio,
+            "fecha_fin": fecha_fin,
+            "nota_interpretes": nota_dos_interpretes or None,
         }
 
 
 # ─── Helpers privados ──────────────────────────────────────────────────────────
+
+def _parsear_fecha(fecha_str: str) -> date | None:
+    """Parsea fecha en formato YYYY-MM-DD. Retorna None si no es válida."""
+    if not fecha_str:
+        return None
+    try:
+        return datetime.strptime(fecha_str.strip(), "%Y-%m-%d").date()
+    except ValueError:
+        # Intento alternativo con otros separadores comunes
+        limpia = re.sub(r"[/.]", "-", fecha_str.strip())
+        try:
+            return datetime.strptime(limpia, "%Y-%m-%d").date()
+        except ValueError:
+            logger.warning(f"No se pudo parsear fecha: {fecha_str!r}")
+            return None
+
 
 def _normalizar(texto: str) -> str:
     """Quita tildes y pasa a minúsculas para comparación sin acento."""

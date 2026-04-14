@@ -21,6 +21,8 @@ async def calcular_cotizacion(
     tipo_servicio: str,
     idioma_destino: str,
     cantidad: float,
+    fecha_inicio: str,
+    fecha_fin: str,
     num_interpretes: int = 2,
     num_receptores: int = 0,
     num_dias: int = 1,
@@ -32,14 +34,18 @@ async def calcular_cotizacion(
     Consulta las tarifas reales de la base de datos y crea un borrador de cotización numerado.
     Devuelve un JSON con las líneas de precio, subtotal, IVA y total.
 
-    Llama esta herramienta cuando ya tienes TODOS los datos del servicio recopilados.
+    Llama esta herramienta cuando ya tienes TODOS los datos del servicio recopilados,
+    incluyendo obligatoriamente las fechas del evento.
 
     tipo_servicio: interpretacion_simultanea_presencial | interpretacion_simultanea_virtual |
                    interpretacion_consecutiva | traduccion_documentos | transcripcion
     idioma_destino: idioma destino (ej: "inglés", "francés", "portugués").
     idioma_origen: idioma origen, default "español".
-    cantidad: horas totales para interpretación, palabras para traducción, minutos para transcripción.
-    num_interpretes: intérpretes simultáneos (default 2 para presencial).
+    cantidad: horas totales para interpretación (días × horas/día), palabras para traducción,
+              minutos para transcripción.
+    fecha_inicio: fecha de inicio del evento en formato YYYY-MM-DD (ej: "2026-05-20"). OBLIGATORIO.
+    fecha_fin: fecha de fin del evento en formato YYYY-MM-DD. Si es un solo día, igual a fecha_inicio.
+    num_interpretes: intérpretes simultáneos. Siempre 2 si la sesión supera 1.5 horas.
     num_receptores: receptores de simultánea necesarios (0 si no aplica).
     num_dias: días de duración del evento (para cálculo de equipos).
     ubicacion: ciudad y lugar del evento (para detectar recargo fuera de Bogotá).
@@ -66,7 +72,8 @@ async def calcular_cotizacion(
         num_dias=num_dias,
         ubicacion=ubicacion or state.get("ubicacion", ""),
         horario=state.get("horario", ""),
-        fecha_str=state.get("fecha", ""),
+        fecha_inicio=fecha_inicio,
+        fecha_fin=fecha_fin,
     )
 
     if result.get("error"):
