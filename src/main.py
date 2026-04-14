@@ -1,9 +1,15 @@
+import asyncio
 import logging
+import sys
 from contextlib import asynccontextmanager
 
 import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+
+# Windows: psycopg requires SelectorEventLoop (not ProactorEventLoop)
+if sys.platform == "win32":
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 from src.agent.graph import build_graph
 from src.config import get_settings
@@ -27,6 +33,7 @@ app = FastAPI(title="ML Traductores Agent", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.dashboard_cors_origins,
+    allow_origin_regex=r"https://[a-z0-9]+\.ml-traductores-dashboard\.pages\.dev",
     allow_credentials=True,
     allow_methods=["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],

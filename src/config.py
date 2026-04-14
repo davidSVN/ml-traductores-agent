@@ -51,7 +51,12 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
 
     # Dashboard CORS
-    dashboard_cors_origins: list[str] = ["http://localhost:3000"]
+    dashboard_cors_origins: list[str] = [
+        "http://localhost:3000",
+        "https://ml-traductores-dashboard.pages.dev",
+        "https://*.ml-traductores-dashboard.pages.dev",
+        "https://ai-washflow.com",
+    ]
 
 
 @lru_cache
