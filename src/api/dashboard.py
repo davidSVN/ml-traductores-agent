@@ -1,0 +1,471 @@
+import datetime
+import logging
+from typing import Generic, Optional, TypeVar
+
+from fastapi import APIRouter, Depends, Query
+from pydantic import BaseModel, ConfigDict
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
+
+from src.db.engine import get_db
+from src.db.models import (
+    Cliente,
+    Contacto,
+    Conversacion,
+    Cotizacion,
+    Mensaje,
+    Servicio,
+    SolicitudAgente,
+    TarifaAlquilerEquipo,
+)
+
+logger = logging.getLogger(__name__)
+
+router = APIRouter(prefix="/dashboard", tags=["dashboard"])
+
+T = TypeVar("T")
+
+
+# ─────────────────────────────────────────
+# SCHEMAS GENÉRICOS
+# ─────────────────────────────────────────
+
+
+class PaginationMeta(BaseModel):
+    total: int
+    page: int
+    page_size: int
+    pages: int
+
+
+class PaginatedResponse(BaseModel, Generic[T]):
+    data: list[T]
+    meta: PaginationMeta
+
+
+# ─────────────────────────────────────────
+# SCHEMAS DE SALIDA
+# ─────────────────────────────────────────
+
+
+class StatsOut(BaseModel):
+    conversaciones_activas: int
+    cotizaciones_total: int
+    cotizaciones_este_mes: int
+    ingresos_total: float
+    ingresos_este_mes: float
+    solicitudes_pendientes: int
+    clientes_total: int
+
+
+class ConversacionOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    cliente_id: Optional[int]
+    cliente_nombre: Optional[str] = None
+    nombre_temporal: Optional[str]
+    telefono_whatsapp: Optional[str]
+    estado: str
+    ultimo_mensaje_preview: Optional[str]
+    ultimo_mensaje_at: Optional[datetime.datetime]
+    mensajes_no_leidos: Optional[int]
+    created_at: Optional[datetime.datetime]
+
+
+class MensajeOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    origen: str
+    contenido: str
+    tipo_contenido: str
+    url_archivo: Optional[str]
+    created_at: Optional[datetime.datetime]
+
+
+class ConversacionDetalleOut(BaseModel):
+    id: int
+    nombre_temporal: Optional[str]
+    telefono_whatsapp: Optional[str]
+    estado: str
+    cliente_nombre: Optional[str]
+
+
+class MensajesResponse(BaseModel):
+    conversacion: ConversacionDetalleOut
+    mensajes: list[MensajeOut]
+    has_more: bool
+
+
+class ClienteOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    nombre_empresa: Optional[str]
+    tipo_cliente: Optional[str]
+    nit: Optional[str]
+    es_recurrente: Optional[bool]
+    ciudad: Optional[str]
+    nivel_precio: Optional[str]
+    exento_iva: Optional[bool]
+    servicios_confirmados: Optional[int]
+    ultima_cotizacion: Optional[datetime.date]
+    contactos_count: int = 0
+
+
+class ContactoOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    nombre_completo: str
+    email: Optional[str]
+    telefono: Optional[str]
+    cargo: Optional[str]
+    es_principal: Optional[bool]
+    puede_aprobar_cotizacion: Optional[bool]
+
+
+class ServicioOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    nombre: str
+    categoria: str
+    unidad_cobro: str
+    idioma_origen: str
+    idioma_destino: str
+    precio_base: float
+    precio_cliente: float
+    es_presencial: bool
+    activo: bool
+
+
+class EquipoOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    tipo_equipo: str
+    cantidad_min: int
+    cantidad_max: int
+    num_dias: Optional[int]
+    precio_proveedor: float
+    precio_cliente: float
+    descripcion: Optional[str]
+    activo: bool
+
+
+class SolicitudOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    tipo: str
+    estado: str
+    prioridad: Optional[str]
+    titulo: str
+    cliente_nombre: Optional[str] = None
+    numero_cotizacion: Optional[str] = None
+    created_at: Optional[datetime.datetime]
+
+
+# ─────────────────────────────────────────
+# HELPERS
+# ─────────────────────────────────────────
+
+
+def _paginate(total: int, page: int, page_size: int) -> PaginationMeta:
+    pages = max(1, (total + page_size - 1) // page_size)
+    return PaginationMeta(total=total, page=page, page_size=page_size, pages=pages)
+
+
+# ─────────────────────────────────────────
+# ENDPOINTS
+# ─────────────────────────────────────────
+
+
+@router.get("/stats", response_model=StatsOut)
+async def get_stats(db: AsyncSession = Depends(get_db)):
+    now = datetime.datetime.utcnow()
+    mes_inicio = datetime.datetime(now.year, now.month, 1)
+
+    conv_activas = await db.scalar(
+        select(func.count(Conversacion.id)).where(Conversacion.estado == "activa")
+    )
+    cot_total = await db.scalar(select(func.count(Cotizacion.id)))
+    cot_mes = await db.scalar(
+        select(func.count(Cotizacion.id)).where(Cotizacion.created_at >= mes_inicio)
+    )
+    ingresos_total = await db.scalar(
+        select(func.coalesce(func.sum(Cotizacion.total), 0)).where(
+            Cotizacion.estado.in_(["enviada", "aceptada"])
+        )
+    )
+    ingresos_mes = await db.scalar(
+        select(func.coalesce(func.sum(Cotizacion.total), 0)).where(
+            Cotizacion.estado.in_(["enviada", "aceptada"]),
+            Cotizacion.created_at >= mes_inicio,
+        )
+    )
+    sol_pendientes = await db.scalar(
+        select(func.count(SolicitudAgente.id)).where(SolicitudAgente.estado == "pendiente")
+    )
+    clientes_total = await db.scalar(select(func.count(Cliente.id)))
+
+    return StatsOut(
+        conversaciones_activas=conv_activas or 0,
+        cotizaciones_total=cot_total or 0,
+        cotizaciones_este_mes=cot_mes or 0,
+        ingresos_total=float(ingresos_total or 0),
+        ingresos_este_mes=float(ingresos_mes or 0),
+        solicitudes_pendientes=sol_pendientes or 0,
+        clientes_total=clientes_total or 0,
+    )
+
+
+@router.get("/conversaciones", response_model=PaginatedResponse[ConversacionOut])
+async def get_conversaciones(
+    estado: Optional[str] = None,
+    search: Optional[str] = None,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(30, ge=1, le=100),
+    db: AsyncSession = Depends(get_db),
+):
+    stmt = select(Conversacion).options(selectinload(Conversacion.cliente))
+
+    if estado:
+        stmt = stmt.where(Conversacion.estado == estado)
+    if search:
+        like = f"%{search}%"
+        stmt = stmt.where(
+            Conversacion.nombre_temporal.ilike(like)
+            | Conversacion.telefono_whatsapp.ilike(like)
+        )
+
+    total = await db.scalar(select(func.count()).select_from(stmt.subquery()))
+    stmt = stmt.order_by(Conversacion.ultimo_mensaje_at.desc().nullslast())
+    stmt = stmt.offset((page - 1) * page_size).limit(page_size)
+    result = await db.execute(stmt)
+    rows = result.scalars().all()
+
+    data = []
+    for c in rows:
+        out = ConversacionOut(
+            id=c.id,
+            cliente_id=c.cliente_id,
+            cliente_nombre=c.cliente.nombre_empresa if c.cliente else None,
+            nombre_temporal=c.nombre_temporal,
+            telefono_whatsapp=c.telefono_whatsapp,
+            estado=c.estado,
+            ultimo_mensaje_preview=c.ultimo_mensaje_preview,
+            ultimo_mensaje_at=c.ultimo_mensaje_at,
+            mensajes_no_leidos=c.mensajes_no_leidos,
+            created_at=c.created_at,
+        )
+        data.append(out)
+
+    return PaginatedResponse(data=data, meta=_paginate(total or 0, page, page_size))
+
+
+@router.get("/conversaciones/{conv_id}/mensajes", response_model=MensajesResponse)
+async def get_mensajes(
+    conv_id: int,
+    limit: int = Query(50, ge=1, le=200),
+    before_id: Optional[int] = None,
+    db: AsyncSession = Depends(get_db),
+):
+    conv_result = await db.execute(
+        select(Conversacion)
+        .options(selectinload(Conversacion.cliente))
+        .where(Conversacion.id == conv_id)
+    )
+    conv = conv_result.scalar_one_or_none()
+    if not conv:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="Conversación no encontrada")
+
+    stmt = select(Mensaje).where(Mensaje.conversacion_id == conv_id)
+    if before_id:
+        stmt = stmt.where(Mensaje.id < before_id)
+
+    total_stmt = select(func.count(Mensaje.id)).where(Mensaje.conversacion_id == conv_id)
+    if before_id:
+        total_stmt = total_stmt.where(Mensaje.id < before_id)
+    total = await db.scalar(total_stmt)
+
+    stmt = stmt.order_by(Mensaje.id.asc()).limit(limit)
+    result = await db.execute(stmt)
+    mensajes = result.scalars().all()
+
+    return MensajesResponse(
+        conversacion=ConversacionDetalleOut(
+            id=conv.id,
+            nombre_temporal=conv.nombre_temporal,
+            telefono_whatsapp=conv.telefono_whatsapp,
+            estado=conv.estado,
+            cliente_nombre=conv.cliente.nombre_empresa if conv.cliente else None,
+        ),
+        mensajes=[MensajeOut.model_validate(m) for m in mensajes],
+        has_more=(total or 0) > limit,
+    )
+
+
+@router.patch("/conversaciones/{conv_id}/leer")
+async def marcar_leida(conv_id: int, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(Conversacion).where(Conversacion.id == conv_id))
+    conv = result.scalar_one_or_none()
+    if conv:
+        conv.mensajes_no_leidos = 0
+        await db.commit()
+    return {"ok": True}
+
+
+@router.get("/clientes", response_model=PaginatedResponse[ClienteOut])
+async def get_clientes(
+    search: Optional[str] = None,
+    es_recurrente: Optional[bool] = None,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(25, ge=1, le=100),
+    db: AsyncSession = Depends(get_db),
+):
+    stmt = select(Cliente)
+
+    if search:
+        stmt = stmt.where(Cliente.nombre_empresa.ilike(f"%{search}%"))
+    if es_recurrente is not None:
+        stmt = stmt.where(Cliente.es_recurrente == es_recurrente)
+
+    total = await db.scalar(select(func.count()).select_from(stmt.subquery()))
+    stmt = stmt.order_by(Cliente.nombre_empresa.asc())
+    stmt = stmt.offset((page - 1) * page_size).limit(page_size)
+    result = await db.execute(stmt)
+    clientes = result.scalars().all()
+
+    # contactos_count por cliente en una sola query
+    cliente_ids = [c.id for c in clientes]
+    count_result = await db.execute(
+        select(Contacto.cliente_id, func.count(Contacto.id).label("cnt"))
+        .where(Contacto.cliente_id.in_(cliente_ids))
+        .group_by(Contacto.cliente_id)
+    )
+    counts = {row.cliente_id: row.cnt for row in count_result}
+
+    data = []
+    for c in clientes:
+        out = ClienteOut(
+            id=c.id,
+            nombre_empresa=c.nombre_empresa,
+            tipo_cliente=c.tipo_cliente,
+            nit=c.nit,
+            es_recurrente=c.es_recurrente,
+            ciudad=c.ciudad,
+            nivel_precio=c.nivel_precio,
+            exento_iva=c.exento_iva,
+            servicios_confirmados=c.servicios_confirmados,
+            ultima_cotizacion=c.ultima_cotizacion,
+            contactos_count=counts.get(c.id, 0),
+        )
+        data.append(out)
+
+    return PaginatedResponse(data=data, meta=_paginate(total or 0, page, page_size))
+
+
+@router.get("/clientes/{cliente_id}/contactos")
+async def get_contactos(cliente_id: int, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(
+        select(Contacto)
+        .where(Contacto.cliente_id == cliente_id)
+        .order_by(Contacto.es_principal.desc(), Contacto.id)
+    )
+    contactos = result.scalars().all()
+    return {"data": [ContactoOut.model_validate(c) for c in contactos]}
+
+
+@router.get("/servicios")
+async def get_servicios(
+    tipo: Optional[str] = Query(None, description="servicio | equipo"),
+    categoria: Optional[str] = None,
+    activo: Optional[bool] = True,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=200),
+    db: AsyncSession = Depends(get_db),
+):
+    if tipo == "equipo":
+        stmt = select(TarifaAlquilerEquipo)
+        if activo is not None:
+            stmt = stmt.where(TarifaAlquilerEquipo.activo == activo)
+        total = await db.scalar(select(func.count()).select_from(stmt.subquery()))
+        stmt = stmt.order_by(TarifaAlquilerEquipo.tipo_equipo).offset((page - 1) * page_size).limit(page_size)
+        result = await db.execute(stmt)
+        equipos = result.scalars().all()
+        data = [
+            EquipoOut(
+                id=e.id,
+                tipo_equipo=e.tipo_equipo,
+                cantidad_min=e.cantidad_min,
+                cantidad_max=e.cantidad_max,
+                num_dias=e.num_dias,
+                precio_proveedor=float(e.precio_proveedor),
+                precio_cliente=float(e.precio_cliente),
+                descripcion=e.descripcion,
+                activo=e.activo,
+            )
+            for e in equipos
+        ]
+        return PaginatedResponse(data=data, meta=_paginate(total or 0, page, page_size))
+    else:
+        stmt = select(Servicio)
+        if activo is not None:
+            stmt = stmt.where(Servicio.activo == activo)
+        if categoria:
+            stmt = stmt.where(Servicio.categoria == categoria)
+        total = await db.scalar(select(func.count()).select_from(stmt.subquery()))
+        stmt = stmt.order_by(Servicio.categoria, Servicio.nombre).offset((page - 1) * page_size).limit(page_size)
+        result = await db.execute(stmt)
+        servicios = result.scalars().all()
+        data = [
+            ServicioOut(
+                id=s.id,
+                nombre=s.nombre,
+                categoria=s.categoria,
+                unidad_cobro=s.unidad_cobro,
+                idioma_origen=s.idioma_origen,
+                idioma_destino=s.idioma_destino,
+                precio_base=float(s.precio_base),
+                precio_cliente=float(s.precio_cliente),
+                es_presencial=s.es_presencial,
+                activo=s.activo,
+            )
+            for s in servicios
+        ]
+        return PaginatedResponse(data=data, meta=_paginate(total or 0, page, page_size))
+
+
+@router.get("/solicitudes", response_model=PaginatedResponse[SolicitudOut])
+async def get_solicitudes(
+    estado: Optional[str] = None,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    db: AsyncSession = Depends(get_db),
+):
+    stmt = select(SolicitudAgente).options(
+        selectinload(SolicitudAgente.cliente),
+        selectinload(SolicitudAgente.cotizacion),
+    )
+    if estado:
+        stmt = stmt.where(SolicitudAgente.estado == estado)
+
+    total = await db.scalar(select(func.count()).select_from(stmt.subquery()))
+    stmt = stmt.order_by(SolicitudAgente.created_at.desc())
+    stmt = stmt.offset((page - 1) * page_size).limit(page_size)
+    result = await db.execute(stmt)
+    solicitudes = result.scalars().all()
+
+    data = []
+    for s in solicitudes:
+        out = SolicitudOut(
+            id=s.id,
+            tipo=s.tipo,
+            estado=s.estado,
+            prioridad=s.prioridad,
+            titulo=s.titulo,
+            cliente_nombre=s.cliente.nombre_empresa if s.cliente else None,
+            numero_cotizacion=s.cotizacion.numero_cotizacion if s.cotizacion else None,
+            created_at=s.created_at,
+        )
+        data.append(out)
+
+    return PaginatedResponse(data=data, meta=_paginate(total or 0, page, page_size))

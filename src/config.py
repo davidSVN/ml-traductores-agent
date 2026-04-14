@@ -50,6 +50,9 @@ class Settings(BaseSettings):
     app_port: int = 8000
     log_level: str = "INFO"
 
+    # Dashboard CORS
+    dashboard_cors_origins: list[str] = ["http://localhost:3000"]
+
 
 @lru_cache
 def get_settings() -> Settings:

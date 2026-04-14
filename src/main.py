@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 
 import uvicorn
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from src.agent.graph import build_graph
 from src.config import get_settings
@@ -23,9 +24,18 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="ML Traductores Agent", lifespan=lifespan)
 
-from src.api import webhooks  # noqa: E402
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.dashboard_cors_origins,
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["*"],
+)
+
+from src.api import dashboard, webhooks  # noqa: E402
 
 app.include_router(webhooks.router)
+app.include_router(dashboard.router)
 
 
 @app.get("/health")
