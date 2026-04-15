@@ -11,9 +11,10 @@ import { Phone } from "lucide-react";
 
 interface Props {
   convId: number | null;
+  onBack?: () => void;
 }
 
-export function ChatWindow({ convId }: Props) {
+export function ChatWindow({ convId, onBack }: Props) {
   const { data, isLoading } = useMensajes(convId);
   const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -36,17 +37,28 @@ export function ChatWindow({ convId }: Props) {
         {isLoading ? (
           <Skeleton className="h-5 w-48" />
         ) : (
-          <div>
-            <p className="font-semibold text-text-primary">
-              {data?.conversacion.nombre_temporal ?? data?.conversacion.telefono_whatsapp ?? "—"}
-            </p>
-            <p className="text-text-muted text-xs flex items-center gap-1 mt-0.5">
-              <Phone size={11} />
-              {data?.conversacion.telefono_whatsapp}
-              {data?.conversacion.cliente_nombre && (
-                <span className="ml-2 text-text-secondary">· {data.conversacion.cliente_nombre}</span>
-              )}
-            </p>
+          <div className="flex items-center gap-2">
+            {onBack && (
+              <button
+                onClick={onBack}
+                className="md:hidden text-text-muted hover:text-text-primary p-1 -ml-1"
+                aria-label="Volver"
+              >
+                ←
+              </button>
+            )}
+            <div>
+              <p className="font-semibold text-text-primary">
+                {data?.conversacion.nombre_temporal ?? data?.conversacion.telefono_whatsapp ?? "—"}
+              </p>
+              <p className="text-text-muted text-xs flex items-center gap-1 mt-0.5">
+                <Phone size={11} />
+                {data?.conversacion.telefono_whatsapp}
+                {data?.conversacion.cliente_nombre && (
+                  <span className="ml-2 text-text-secondary">· {data.conversacion.cliente_nombre}</span>
+                )}
+              </p>
+            </div>
           </div>
         )}
         {data?.conversacion.estado && (
