@@ -90,19 +90,20 @@ async def calcular_borrador(
         total_formateado, exento_iva, validez_oferta, forma_pago.
         En caso de error retorna {"error": True, "mensaje": str}.
     """
-    # ── Regla: 2 intérpretes obligatorio para sesiones > 1.5 h ────────────────
     nota_dos_interpretes = ""
-    horas_por_dia = cantidad / max(num_dias, 1) if num_dias else cantidad
-    es_simultanea = "simultanea" in tipo_servicio or "simultánea" in tipo_servicio
-    if es_simultanea and horas_por_dia > 1.5 and num_interpretes < 2:
-        num_interpretes = 2
-        nota_dos_interpretes = (
-            "Se asignaron 2 intérpretes simultáneos (norma profesional para sesiones > 1.5 h)."
-        )
 
     # ── Parseo de fechas (YYYY-MM-DD) ─────────────────────────────────────────
     fecha_inicio_date: date | None = _parsear_fecha(fecha_inicio)
     fecha_fin_date: date | None = _parsear_fecha(fecha_fin) or fecha_inicio_date
+
+    # ── Corrección de año si el LLM usó año pasado ────────────────────────────
+    hoy = date.today()
+    if fecha_inicio_date and fecha_inicio_date < hoy:
+        corrected = fecha_inicio_date.replace(year=hoy.year)
+        fecha_inicio_date = corrected if corrected >= hoy else fecha_inicio_date.replace(year=hoy.year + 1)
+    if fecha_fin_date and fecha_fin_date < hoy:
+        corrected = fecha_fin_date.replace(year=hoy.year)
+        fecha_fin_date = corrected if corrected >= hoy else fecha_fin_date.replace(year=hoy.year + 1)
 
     async with async_session_factory() as db:
         # 1. Cargar cliente
@@ -135,12 +136,37 @@ async def calcular_borrador(
         precio_con_descuento = precio_unitario * (1 - descuento / 100)
 
         # 5. Línea principal del servicio profesional
-        cantidad_dec = Decimal(str(cantidad))
-        num_int_dec = Decimal(str(num_interpretes))
-        cantidad_total = cantidad_dec * num_int_dec
-        precio_linea_principal = precio_con_descuento * cantidad_total
+        es_interpretacion = servicio.unidad_cobro == "por_dia"
 
-        unidad_label = UNIDAD_LABEL.get(servicio.unidad_cobro, servicio.unidad_cobro)
+        if es_interpretacion:
+            # ── Bandas de precio por horas/día ────────────────────────────────
+            horas_por_dia_calc = cantidad / max(num_dias, 1)
+            if horas_por_dia_calc <= 2:
+                num_interpretes = 1
+                precio_dia_banda = Decimal("1200000")
+                banda = "sesion corta (hasta 2h)"
+            elif horas_por_dia_calc <= 4:
+                num_interpretes = 2
+                precio_dia_banda = precio_unitario * Decimal("0.75")  # 1.950.000
+                banda = "medio tiempo (2h-4h)"
+            else:
+                num_interpretes = 2
+                precio_dia_banda = precio_unitario  # 2.600.000
+                banda = "dia completo (> 4h)"
+
+            precio_dia_con_descuento = precio_dia_banda * (1 - descuento / 100)
+            precio_linea_principal = precio_dia_con_descuento * Decimal(str(num_dias))
+            cantidad_display = Decimal(str(num_dias))
+            precio_unitario_display = precio_dia_con_descuento
+            unidad_label = "Día(s)"
+            nota_dos_interpretes = f"({banda})" if num_interpretes == 2 else ""
+        else:
+            # ── Traducción / transcripción: precio por unidad ─────────────────
+            precio_linea_principal = precio_con_descuento * Decimal(str(cantidad))
+            cantidad_display = Decimal(str(cantidad))
+            precio_unitario_display = precio_con_descuento
+            unidad_label = UNIDAD_LABEL.get(servicio.unidad_cobro, servicio.unidad_cobro)
+
         descripcion_principal = (
             f"{servicio.nombre} — {idioma_origen.capitalize()} / {idioma_destino.capitalize()}"
         )
@@ -160,9 +186,9 @@ async def calcular_borrador(
                 "idioma_origen": idioma_origen.capitalize(),
                 "idioma_destino": idioma_destino.capitalize(),
                 "horario": horario,
-                "cantidad": cantidad_total,
+                "cantidad": cantidad_display,
                 "unidad": unidad_label,
-                "precio_unitario": precio_con_descuento,
+                "precio_unitario": precio_unitario_display,
                 "precio_total": precio_linea_principal,
                 "num_interpretes": num_interpretes,
                 "num_dias": num_dias,

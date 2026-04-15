@@ -1,3 +1,4 @@
+import datetime
 from typing import Optional
 
 from langgraph.graph import MessagesState
@@ -83,7 +84,10 @@ def prompt_summary(state: dict) -> str:
     }
     missing = missing_required(state)
 
-    lines = [f"Fase: {state.get('phase', 'inicial')}"]
+    lines = [
+        f"Fecha actual: {datetime.date.today().isoformat()}",
+        f"Fase: {state.get('phase', 'inicial')}",
+    ]
     if collected:
         lines.append("Datos ya recopilados: " + ", ".join(f"{k}={v}" for k, v in collected.items()))
     if missing:

@@ -12,7 +12,7 @@ from langgraph.prebuilt import InjectedState
 from sqlalchemy import select
 
 from src.db.engine import async_session_factory
-from src.db.models import Cotizacion, SolicitudAgente
+from src.db.models import Cotizacion, Mensaje, SolicitudAgente
 
 logger = logging.getLogger(__name__)
 
@@ -42,8 +42,7 @@ async def calcular_cotizacion(
                    interpretacion_consecutiva | traduccion_documentos | transcripcion
     idioma_destino: idioma destino (ej: "inglés", "francés", "portugués").
     idioma_origen: idioma origen, default "español".
-    cantidad: horas totales para interpretación (días × horas/día), palabras para traducción,
-              minutos para transcripción.
+    cantidad: para interpretación = horas POR DÍA (no el total). Traducción = palabras. Transcripción = minutos.
     fecha_inicio: fecha de inicio del evento en formato YYYY-MM-DD (ej: "2026-05-20"). OBLIGATORIO.
     fecha_fin: fecha de fin del evento en formato YYYY-MM-DD. Si es un solo día, igual a fecha_inicio.
     num_interpretes: intérpretes simultáneos. Siempre 2 si la sesión supera 1.5 horas.
@@ -145,12 +144,23 @@ async def enviar_cotizacion(
         )
         logger.info(f"Cotización {numero} enviada a {phone}")
 
-        # 5. Marcar como enviada
+        # 5. Marcar como enviada + registrar mensaje en dashboard
+        conversacion_id = state.get("conversacion_id") if state else None
         async with async_session_factory() as db:
             db_cot = await db.get(Cotizacion, cotizacion_id)
             if db_cot:
                 db_cot.estado = "enviada"
-                await db.commit()
+
+            if conversacion_id:
+                db.add(Mensaje(
+                    conversacion_id=conversacion_id,
+                    origen="agente",
+                    contenido=f"Cotización {numero} enviada",
+                    tipo_contenido="documento",
+                    url_archivo=url,
+                ))
+
+            await db.commit()
 
         return json.dumps({
             "enviada": True,

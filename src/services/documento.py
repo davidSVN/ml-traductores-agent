@@ -92,7 +92,7 @@ async def generar_word(cotizacion_id: int) -> bytes:
             _celda(row.cells[1], linea.descripcion_generada or (servicio.nombre if servicio else ""), size=7, bold=True)
             _celda(row.cells[2], servicio.idioma_origen or "" if servicio else "", size=7)
             _celda(row.cells[3], servicio.idioma_destino or "" if servicio else "", size=7)
-            _celda(row.cells[4], _formato_fecha(linea.fecha_servicio_inicio), size=7)
+            _celda(row.cells[4], _formato_fecha_rango(linea.fecha_servicio_inicio, linea.fecha_servicio_fin), size=7)
             _celda(row.cells[5], linea.horario or "", size=7)
             _celda(row.cells[6], str(int(linea.cantidad)), size=7, alignment=WD_ALIGN_PARAGRAPH.CENTER)
             _celda(row.cells[7], _unidad_label(servicio), size=7)
@@ -204,6 +204,19 @@ def _formato_fecha(d) -> str:
     if d is None:
         return ""
     return f"{d.day} {MESES_ES.get(d.month, '')} {d.year}"
+
+
+def _formato_fecha_rango(inicio, fin) -> str:
+    """Formatea rango de fechas: '28-29 abr', '28 abr - 3 may', '28 abr 2026'."""
+    if inicio is None:
+        return ""
+    mes_i = MESES_ES.get(inicio.month, "")[:3]
+    if fin is None or fin == inicio:
+        return f"{inicio.day} {mes_i}"
+    mes_f = MESES_ES.get(fin.month, "")[:3]
+    if inicio.month == fin.month:
+        return f"{inicio.day}-{fin.day} {mes_i}"
+    return f"{inicio.day} {mes_i} - {fin.day} {mes_f}"
 
 
 def _referencia_servicio(lineas) -> str:

@@ -75,13 +75,15 @@ async def receive_message(request: Request, db: AsyncSession = Depends(get_db)):
         whatsapp_message_id=wa_msg_id,
     )
     db.add(msg_cliente)
-    await db.flush()
 
     # Update conversation summary with incoming message
     now = datetime.datetime.now(datetime.timezone.utc)
     conversacion.ultimo_mensaje_at = now
     conversacion.ultimo_mensaje_preview = text[:100]
     conversacion.mensajes_no_leidos = (conversacion.mensajes_no_leidos or 0) + 1
+
+    # Commit BEFORE running the agent so the client message is visible immediately
+    await db.commit()
 
     # Run LangGraph — thread_id ties this to the conversation history in the checkpointer
     graph = request.app.state.graph
@@ -119,8 +121,10 @@ async def receive_message(request: Request, db: AsyncSession = Depends(get_db)):
     # Send via WhatsApp
     await wa_client.send_text(phone, respuesta)
 
+    # Commit agent response and conversation update
     await db.commit()
     return {"status": "ok"}
+
 
 
 def _extract_message(payload: dict) -> dict | None:
