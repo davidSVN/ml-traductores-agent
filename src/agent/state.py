@@ -37,10 +37,21 @@ class AgentState(MessagesState):
     cantidad: Optional[str]
     num_interpretes: Optional[str]
 
+    # Datos de empresa (para crear cliente nuevo)
+    nit: Optional[str]
+    ciudad: Optional[str]
+    direccion: Optional[str]
+    sector: Optional[str]
+    exento_iva: Optional[bool]
+
+    # Datos del contacto adicionales
+    puede_aprobar_cotizacion: Optional[bool]
+
     # IDs resueltos por tools
     cliente_id: Optional[int]
     contacto_id: Optional[int]
     cotizacion_id: Optional[int]
+    cotizacion_estado: Optional[str]
 
     # Metadata del cliente (cargada por buscar_cliente / buscar_contacto_por_telefono)
     es_recurrente: Optional[bool]
@@ -63,7 +74,7 @@ def prompt_summary(state: dict) -> str:
     """Texto inyectado en el system prompt para que el LLM sepa el estado actual."""
     skip = {
         "phase", "phone", "conversacion_id", "messages",
-        "cliente_id", "contacto_id", "cotizacion_id",
+        "cliente_id", "contacto_id", "cotizacion_id", "cotizacion_estado",
         "es_recurrente", "servicios_confirmados", "nivel_precio", "notas_pricing",
     }
     collected = {
@@ -82,9 +93,13 @@ def prompt_summary(state: dict) -> str:
         if state.get("es_recurrente"):
             lines.append("Es cliente recurrente")
         if state.get("servicios_confirmados"):
-            lines.append(f"Servicios confirmados históricos: {state['servicios_confirmados']}")
+            lines.append(f"Servicios confirmados historicos: {state['servicios_confirmados']}")
         if state.get("nivel_precio"):
             lines.append(f"Nivel de precio: {state['nivel_precio']}")
         if state.get("notas_pricing"):
             lines.append(f"Notas de pricing (instrucciones internas): {state['notas_pricing']}")
+    if state.get("cotizacion_id"):
+        lines.append(f"Cotizacion activa: id={state['cotizacion_id']}")
+    if state.get("cotizacion_estado"):
+        lines.append(f"Estado cotizacion: {state['cotizacion_estado']}")
     return "\n".join(lines)

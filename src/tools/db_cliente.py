@@ -137,16 +137,40 @@ async def crear_cliente(
     contacto_email: str = "",
     contacto_telefono: str = "",
     contacto_cargo: str = "",
+    nit: str = "",
+    ciudad: str = "Bogotá",
+    direccion: str = "",
+    sector: str = "",
+    exento_iva: bool = False,
+    puede_aprobar_cotizacion: bool = False,
 ) -> str:
     """
     Crea un nuevo cliente y su contacto principal en la base de datos.
     Úsala solo cuando confirmes que el cliente NO existe (buscar_cliente devolvió encontrado=false)
     y tengas al menos nombre_empresa y nombre del contacto.
+
+    nombre_empresa: Razón social o nombre de la empresa.
+    contacto_nombre: Nombre completo del contacto que escribe.
+    tipo_cliente: "Empresa" (default) o "Persona Natural".
+    contacto_email: Email del contacto.
+    contacto_telefono: Teléfono del contacto (el de WhatsApp si aplica).
+    contacto_cargo: Cargo del contacto en la empresa.
+    nit: NIT de la empresa (con dígito verificador si lo sabe, ej: "900123456-7").
+    ciudad: Ciudad sede de la empresa (default Bogotá).
+    direccion: Dirección de la empresa (opcional).
+    sector: Sector económico (ej: "Salud", "Educación", "Gobierno").
+    exento_iva: True si es entidad gubernamental o cliente extranjero exento de IVA.
+    puede_aprobar_cotizacion: True si este contacto puede aprobar la cotización directamente.
     """
     async with async_session_factory() as db:
         cliente = Cliente(
             nombre_empresa=nombre_empresa,
             tipo_cliente=tipo_cliente,
+            nit=nit or None,
+            ciudad=ciudad or "Bogotá",
+            direccion=direccion or None,
+            sector=sector or None,
+            exento_iva=exento_iva,
         )
         db.add(cliente)
         await db.flush()
@@ -158,9 +182,59 @@ async def crear_cliente(
             telefono=contacto_telefono or None,
             cargo=contacto_cargo or None,
             es_principal=True,
+            puede_aprobar_cotizacion=puede_aprobar_cotizacion,
         )
         db.add(contacto)
         await db.commit()
 
         logger.info(f"Cliente creado: {nombre_empresa} (id={cliente.id})")
-        return json.dumps({"cliente_id": cliente.id, "contacto_id": contacto.id})
+        return json.dumps({
+            "cliente_id": cliente.id,
+            "contacto_id": contacto.id,
+            "nombre_empresa": nombre_empresa,
+            "exento_iva": exento_iva,
+        })
+
+
+@tool
+async def crear_contacto(
+    cliente_id: int,
+    nombre_completo: str,
+    contacto_email: str = "",
+    contacto_telefono: str = "",
+    contacto_cargo: str = "",
+    puede_aprobar_cotizacion: bool = False,
+) -> str:
+    """
+    Crea un nuevo contacto para un cliente que YA EXISTE en la base de datos.
+    Úsala cuando buscar_cliente encontró la empresa pero el contacto que escribe
+    no está registrado (su número de WhatsApp no aparece en los contactos de esa empresa).
+
+    cliente_id: ID del cliente existente (retornado por buscar_cliente).
+    nombre_completo: Nombre completo del contacto.
+    contacto_email: Email del contacto.
+    contacto_telefono: Teléfono del contacto.
+    contacto_cargo: Cargo del contacto en la empresa.
+    puede_aprobar_cotizacion: True si puede tomar decisión de compra directamente.
+    """
+    async with async_session_factory() as db:
+        contacto = Contacto(
+            cliente_id=cliente_id,
+            nombre_completo=nombre_completo.strip().title(),
+            email=contacto_email or None,
+            telefono=contacto_telefono or None,
+            cargo=contacto_cargo or None,
+            es_principal=False,
+            puede_aprobar_cotizacion=puede_aprobar_cotizacion,
+        )
+        db.add(contacto)
+        await db.commit()
+        await db.refresh(contacto)
+
+        logger.info(f"Contacto creado: {nombre_completo} para cliente_id={cliente_id} (contacto_id={contacto.id})")
+        return json.dumps({
+            "contacto_id": contacto.id,
+            "nombre_completo": contacto.nombre_completo,
+            "cliente_id": cliente_id,
+            "puede_aprobar_cotizacion": puede_aprobar_cotizacion,
+        })

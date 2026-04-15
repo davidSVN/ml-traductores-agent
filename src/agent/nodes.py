@@ -11,8 +11,11 @@ from src.agent.state import AgentState, missing_required, prompt_summary
 from src.config import get_settings
 from src.db.engine import async_session_factory
 from src.db.models import Cliente, Contacto
-from src.tools.db_cliente import buscar_cliente, crear_cliente
-from src.tools.db_cotizacion import calcular_cotizacion, crear_solicitud, enviar_cotizacion
+from src.tools.db_cliente import buscar_cliente, crear_cliente, crear_contacto
+from src.tools.db_conversacion import marcar_revisar
+from src.tools.db_cotizacion import (
+    actualizar_cotizacion, calcular_cotizacion, crear_solicitud, enviar_cotizacion
+)
 from src.tools.db_servicios import consultar_historial, consultar_tarifas, listar_servicios
 
 logger = logging.getLogger(__name__)
@@ -22,21 +25,36 @@ SKILLS_DIR = Path(__file__).parent.parent / "skills"
 
 # Skills cargadas por fase
 PHASE_SKILLS: dict[str, list[str]] = {
-    "inicial": ["personalidad.md"],
-    "recopilando": ["personalidad.md", "recopilacion.md"],
-    "cualificando": ["personalidad.md", "recopilacion.md"],
-    "listo_para_cotizar": ["personalidad.md", "cotizacion.md"],
+    "inicial":             ["personalidad.md"],
+    "recopilando":         ["personalidad.md", "recopilacion.md"],
+    "cualificando":        ["personalidad.md", "recopilacion.md"],
+    "listo_para_cotizar":  ["personalidad.md", "cotizacion.md"],
+    "cotizando":           ["personalidad.md", "cotizando.md"],
 }
 
-# Tools disponibles por fase — buscar_contacto_por_telefono se eliminó:
-# el lookup automático por WhatsApp ya lo hace lookup_contact_node
+# Tools disponibles por fase
+# lookup_contact_node ya hace el lookup automatico por WhatsApp al inicio
 PHASE_TOOLS: dict[str, list] = {
-    "inicial": [listar_servicios],
-    "recopilando": [listar_servicios, buscar_cliente, crear_cliente],
-    "cualificando": [buscar_cliente, consultar_historial],
+    "inicial": [
+        listar_servicios,
+        marcar_revisar,
+    ],
+    "recopilando": [
+        listar_servicios, buscar_cliente, crear_cliente, crear_contacto,
+        marcar_revisar,
+    ],
+    "cualificando": [
+        buscar_cliente, crear_contacto, consultar_historial,
+        marcar_revisar,
+    ],
     "listo_para_cotizar": [
         consultar_historial, consultar_tarifas,
         calcular_cotizacion, enviar_cotizacion, crear_solicitud,
+        marcar_revisar,
+    ],
+    "cotizando": [
+        actualizar_cotizacion, calcular_cotizacion, enviar_cotizacion,
+        crear_solicitud, marcar_revisar,
     ],
 }
 
@@ -191,6 +209,20 @@ def _apply_tool_result(updates: dict, tool_name: str, result: dict) -> None:
     elif tool_name == "crear_cliente":
         updates["cliente_id"] = result.get("cliente_id")
         updates["contacto_id"] = result.get("contacto_id")
+        if result.get("exento_iva") is not None:
+            updates["exento_iva"] = result.get("exento_iva")
+
+    elif tool_name == "crear_contacto":
+        updates["contacto_id"] = result.get("contacto_id")
+        if result.get("cliente_id"):
+            updates["cliente_id"] = result.get("cliente_id")
+        if result.get("puede_aprobar_cotizacion") is not None:
+            updates["puede_aprobar_cotizacion"] = result.get("puede_aprobar_cotizacion")
 
     elif tool_name == "calcular_cotizacion" and not result.get("error"):
         updates["cotizacion_id"] = result.get("cotizacion_id")
+
+    elif tool_name == "actualizar_cotizacion" and not result.get("error"):
+        updates["cotizacion_estado"] = result.get("estado")
+
+    # marcar_revisar: no actualiza AgentState (solo cambia DB)

@@ -2,6 +2,7 @@
 Tools LangGraph para cotización, envío de documentos y escalada a María Luisa.
 Usan InjectedState para leer campos del AgentState sin exponerlos al LLM.
 """
+import datetime
 import json
 import logging
 from typing import Annotated
@@ -211,5 +212,49 @@ async def crear_solicitud(
     return json.dumps({
         "solicitud_id": solicitud.id,
         "tipo": tipo,
-        "mensaje_para_cliente": "He escalado su caso a nuestra encargada. Ella le contactará a la brevedad.",
+        "mensaje_para_cliente": "He escalado su caso a nuestra encargada. Ella le contactara a la brevedad.",
+    }, ensure_ascii=False)
+
+
+@tool
+async def actualizar_cotizacion(
+    cotizacion_id: int,
+    estado: str,
+    motivo: str = "",
+) -> str:
+    """
+    Actualiza el estado de una cotizacion segun la decision del cliente.
+    Llamar despues de que el cliente responde si aprueba, rechaza o pide cambios.
+
+    cotizacion_id: ID de la cotizacion (el mismo retornado por calcular_cotizacion).
+    estado: Decision del cliente — uno de: "aprobada", "rechazada", "a_modificar".
+    motivo: Razon opcional (requerida si es rechazada para registrar feedback).
+    """
+    estados_validos = {"aprobada", "rechazada", "a_modificar"}
+    if estado not in estados_validos:
+        return json.dumps({
+            "error": True,
+            "mensaje": f"Estado invalido '{estado}'. Debe ser: aprobada, rechazada o a_modificar.",
+        }, ensure_ascii=False)
+
+    async with async_session_factory() as db:
+        cot = await db.get(Cotizacion, cotizacion_id)
+        if not cot:
+            return json.dumps({
+                "error": True,
+                "mensaje": f"Cotizacion {cotizacion_id} no encontrada.",
+            }, ensure_ascii=False)
+
+        cot.estado = estado
+        cot.fecha_respuesta = datetime.date.today()
+        if estado == "rechazada" and motivo:
+            cot.razon_perdida = motivo
+        await db.commit()
+
+    logger.info(f"Cotizacion {cotizacion_id} actualizada a estado={estado!r}")
+    return json.dumps({
+        "ok": True,
+        "cotizacion_id": cotizacion_id,
+        "numero_cotizacion": cot.numero_cotizacion,
+        "estado": estado,
     }, ensure_ascii=False)
