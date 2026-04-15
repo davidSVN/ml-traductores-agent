@@ -19,14 +19,15 @@ def detect_phase(state: AgentState) -> str:
     messages = state.get("messages", [])
     user_messages = [m for m in messages if getattr(m, "type", None) == "human"]
 
-    nombre = state.get("nombre")
-    empresa = state.get("empresa")
     cliente_id = state.get("cliente_id")
     cotizacion_id = state.get("cotizacion_id")
 
-    # Sin mensajes del cliente todavia (o solo uno) y sin datos de contacto
-    if len(user_messages) <= 1 and not nombre and not empresa:
+    # Sin ningun mensaje del cliente todavia → saludo inicial
+    if len(user_messages) == 0:
         return "inicial"
+
+    # A partir del primer mensaje del cliente, siempre tiene acceso a tools de cliente.
+    # Las fases se evaluan en orden de prioridad:
 
     # Cotizacion enviada → esperando aprobacion/rechazo del cliente
     if cliente_id is not None and cotizacion_id is not None:
@@ -36,12 +37,10 @@ def detect_phase(state: AgentState) -> str:
     if cliente_id is not None:
         return "listo_para_cotizar"
 
-    # Datos basicos completos, aun sin cliente_id → buscar/crear cliente
+    # Datos basicos completos (nombre+empresa+email en state via tools), sin cliente_id aun
     if is_ready_to_qualify(state):
         return "cualificando"
 
-    # Recopilando datos de contacto
-    if nombre or empresa:
-        return "recopilando"
-
-    return "inicial"
+    # Default desde el primer mensaje: recopilando
+    # El LLM tiene buscar_cliente, crear_cliente, crear_contacto disponibles
+    return "recopilando"
