@@ -5,7 +5,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import PlainTextResponse
 from langchain_core.messages import HumanMessage
-from sqlalchemy import select
+from sqlalchemy import select, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config import get_settings
@@ -54,7 +54,10 @@ async def receive_message(request: Request, db: AsyncSession = Depends(get_db)):
 
     # Get or create conversation (for dashboard / mensajes table)
     conv_result = await db.execute(
-        select(Conversacion).where(Conversacion.telefono_whatsapp == phone).limit(1)
+        select(Conversacion)
+        .where(Conversacion.telefono_whatsapp == phone)
+        .order_by(desc(Conversacion.id))
+        .limit(1)
     )
     conversacion = conv_result.scalar_one_or_none()
 
