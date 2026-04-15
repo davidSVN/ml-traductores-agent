@@ -1,7 +1,9 @@
 import json
 import logging
+from typing import Annotated
 
 from langchain_core.tools import tool
+from langgraph.prebuilt import InjectedState
 from sqlalchemy import select
 
 from src.db.engine import async_session_factory
@@ -143,6 +145,7 @@ async def crear_cliente(
     sector: str = "",
     exento_iva: bool = False,
     puede_aprobar_cotizacion: bool = False,
+    state: Annotated[dict, InjectedState] = None,
 ) -> str:
     """
     Crea un nuevo cliente y su contacto principal en la base de datos.
@@ -163,6 +166,7 @@ async def crear_cliente(
     puede_aprobar_cotizacion: True si este contacto puede aprobar la cotización directamente.
     """
     async with async_session_factory() as db:
+        import decimal
         cliente = Cliente(
             nombre_empresa=nombre_empresa,
             tipo_cliente=tipo_cliente,
@@ -171,18 +175,30 @@ async def crear_cliente(
             direccion=direccion or None,
             sector=sector or None,
             exento_iva=exento_iva,
+            # Defaults para que María Luisa ajuste desde el frontend
+            notas_relacion="sin notas, hay que agregar",
+            descuento_min_porcentaje=decimal.Decimal("5.00"),
+            descuento_max_porcentaje=decimal.Decimal("25.00"),
+            markup_personalizado=decimal.Decimal("30.00"),
+            notas_pricing="sin notas de ajustes de precios, hay que agregar",
         )
         db.add(cliente)
         await db.flush()
+
+        # El teléfono del contacto es el número de WhatsApp con el que contacta
+        state_phone = (state or {}).get("phone", "")
+        telefono_contacto = contacto_telefono or state_phone or None
 
         contacto = Contacto(
             cliente_id=cliente.id,
             nombre_completo=contacto_nombre.strip().title(),
             email=contacto_email or None,
-            telefono=contacto_telefono or None,
+            telefono=telefono_contacto,
             cargo=contacto_cargo or None,
             es_principal=True,
             puede_aprobar_cotizacion=puede_aprobar_cotizacion,
+            notas="sin notas, hay que agregarlo",
+            notas_negociacion="sin notas, hay que agregarlo",
         )
         db.add(contacto)
         await db.commit()
@@ -204,6 +220,7 @@ async def crear_contacto(
     contacto_telefono: str = "",
     contacto_cargo: str = "",
     puede_aprobar_cotizacion: bool = False,
+    state: Annotated[dict, InjectedState] = None,
 ) -> str:
     """
     Crea un nuevo contacto para un cliente que YA EXISTE en la base de datos.
@@ -213,19 +230,24 @@ async def crear_contacto(
     cliente_id: ID del cliente existente (retornado por buscar_cliente).
     nombre_completo: Nombre completo del contacto.
     contacto_email: Email del contacto.
-    contacto_telefono: Teléfono del contacto.
+    contacto_telefono: Teléfono del contacto (si no se provee, se usa el número de WhatsApp).
     contacto_cargo: Cargo del contacto en la empresa.
     puede_aprobar_cotizacion: True si puede tomar decisión de compra directamente.
     """
+    state_phone = (state or {}).get("phone", "")
+    telefono_contacto = contacto_telefono or state_phone or None
+
     async with async_session_factory() as db:
         contacto = Contacto(
             cliente_id=cliente_id,
             nombre_completo=nombre_completo.strip().title(),
             email=contacto_email or None,
-            telefono=contacto_telefono or None,
+            telefono=telefono_contacto,
             cargo=contacto_cargo or None,
             es_principal=False,
             puede_aprobar_cotizacion=puede_aprobar_cotizacion,
+            notas="sin notas, hay que agregarlo",
+            notas_negociacion="sin notas, hay que agregarlo",
         )
         db.add(contacto)
         await db.commit()
