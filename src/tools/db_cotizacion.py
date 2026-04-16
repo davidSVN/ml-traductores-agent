@@ -29,6 +29,7 @@ async def calcular_cotizacion(
     num_dias: int = 1,
     idioma_origen: str = "español",
     ubicacion: str = "",
+    horario: str = "",
     state: Annotated[dict, InjectedState] = None,
 ) -> str:
     """
@@ -49,6 +50,7 @@ async def calcular_cotizacion(
     num_receptores: receptores de simultánea necesarios (0 si no aplica).
     num_dias: días de duración del evento (para cálculo de equipos).
     ubicacion: ciudad y lugar del evento (para detectar recargo fuera de Bogotá).
+    horario: horario del evento tal como lo indicó el cliente (ej: "8am a 5pm", "9:00 a 13:00").
     """
     from src.services.cotizacion import calcular_borrador
 
@@ -71,7 +73,7 @@ async def calcular_cotizacion(
         num_receptores=num_receptores,
         num_dias=num_dias,
         ubicacion=ubicacion or state.get("ubicacion", ""),
-        horario=state.get("horario", ""),
+        horario=horario or state.get("horario", ""),
         fecha_inicio=fecha_inicio,
         fecha_fin=fecha_fin,
     )

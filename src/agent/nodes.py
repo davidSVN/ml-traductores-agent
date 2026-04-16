@@ -147,6 +147,38 @@ async def lookup_contact_node(state: AgentState) -> dict:
     }
 
 
+def _sanitize_messages(messages: list) -> list:
+    """
+    Garantiza que cada tool_use tenga su tool_result correspondiente.
+    Inyecta ToolMessages sintéticos para IDs huérfanos (e.g. de sesiones interrumpidas).
+    Evita BadRequestError 400 de Anthropic.
+    """
+    from langchain_core.messages import AIMessage
+
+    satisfied_ids = {
+        msg.tool_call_id
+        for msg in messages
+        if isinstance(msg, ToolMessage) and hasattr(msg, "tool_call_id")
+    }
+
+    result = []
+    for msg in messages:
+        result.append(msg)
+        if isinstance(msg, AIMessage) and getattr(msg, "tool_calls", None):
+            orphaned = [tc for tc in msg.tool_calls if tc["id"] not in satisfied_ids]
+            for tc in orphaned:
+                logger.warning(
+                    f"sanitize: inyectando tool_result sintético — "
+                    f"id={tc['id']} name={tc['name']}"
+                )
+                result.append(ToolMessage(
+                    content='{"error": "Tool call interrupted — no result available."}',
+                    tool_call_id=tc["id"],
+                    name=tc["name"],
+                ))
+    return result
+
+
 async def chatbot_node(state: AgentState) -> dict:
     """
     Nodo principal — llama al LLM con las skills y tools apropiadas para la fase actual.
@@ -160,7 +192,7 @@ async def chatbot_node(state: AgentState) -> dict:
         max_tokens=4096,
     ).bind_tools(tools)
 
-    messages = [SystemMessage(content=system_prompt)] + list(state["messages"])
+    messages = [SystemMessage(content=system_prompt)] + _sanitize_messages(list(state["messages"]))
     response = await llm.ainvoke(messages)
     return {"messages": [response]}
 
