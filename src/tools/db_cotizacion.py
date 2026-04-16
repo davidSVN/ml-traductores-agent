@@ -240,12 +240,21 @@ async def actualizar_cotizacion(
     estado: Decision del cliente — uno de: "aprobada", "rechazada", "a_modificar".
     motivo: Razon opcional (requerida si es rechazada para registrar feedback).
     """
-    estados_validos = {"aprobada", "rechazada", "a_modificar"}
+    # Mapeo LLM → valores reales del constraint estado_valido en DB
+    # borrador | enviada | en_seguimiento | negociando | aprobada | perdida | vencida
+    ESTADO_MAP = {
+        "aprobada":    "aprobada",
+        "rechazada":   "perdida",
+        "a_modificar": "negociando",
+    }
+    estados_validos = set(ESTADO_MAP.keys())
     if estado not in estados_validos:
         return json.dumps({
             "error": True,
             "mensaje": f"Estado invalido '{estado}'. Debe ser: aprobada, rechazada o a_modificar.",
         }, ensure_ascii=False)
+
+    estado_db = ESTADO_MAP[estado]
 
     async with async_session_factory() as db:
         cot = await db.get(Cotizacion, cotizacion_id)
@@ -255,7 +264,7 @@ async def actualizar_cotizacion(
                 "mensaje": f"Cotizacion {cotizacion_id} no encontrada.",
             }, ensure_ascii=False)
 
-        cot.estado = estado
+        cot.estado = estado_db
         cot.fecha_respuesta = datetime.date.today()
         if estado == "rechazada" and motivo:
             cot.razon_perdida = motivo
