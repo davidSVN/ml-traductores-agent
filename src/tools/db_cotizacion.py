@@ -12,7 +12,9 @@ from langgraph.prebuilt import InjectedState
 from sqlalchemy import select
 
 from src.db.engine import async_session_factory
-from src.db.models import Cotizacion, Mensaje, MensajeInterno, SolicitudAgente
+from sqlalchemy.orm import selectinload
+
+from src.db.models import Cotizacion, LineaCotizacion, Mensaje, MensajeInterno, SolicitudAgente
 
 logger = logging.getLogger(__name__)
 
@@ -110,9 +112,17 @@ async def enviar_cotizacion(
     if not phone:
         return json.dumps({"error": True, "mensaje": "No hay número de teléfono en estado."}, ensure_ascii=False)
 
-    # 1. Obtener número de cotización para el nombre del archivo
+    # 1. Obtener cotización completa con líneas, cliente y contacto
     async with async_session_factory() as db:
-        result = await db.execute(select(Cotizacion).where(Cotizacion.id == cotizacion_id))
+        result = await db.execute(
+            select(Cotizacion)
+            .options(
+                selectinload(Cotizacion.lineas).selectinload(LineaCotizacion.servicio),
+                selectinload(Cotizacion.cliente),
+                selectinload(Cotizacion.contacto),
+            )
+            .where(Cotizacion.id == cotizacion_id)
+        )
         cot = result.scalar_one_or_none()
 
     if not cot:
@@ -167,7 +177,39 @@ async def enviar_cotizacion(
                 ))
 
             # Crear solicitud automática para que María Luisa vea en Aprobaciones
-            cliente_label = empresa or nombre or f"cliente {cliente_id}"
+            # Poblar datos_formulario desde DB (no del state que puede estar vacío)
+            cliente_db = cot.cliente
+            contacto_db = cot.contacto
+            primera_linea = cot.lineas[0] if cot.lineas else None
+
+            empresa_db = cliente_db.nombre_empresa if cliente_db else (empresa or "")
+            nombre_db = contacto_db.nombre_completo if contacto_db else (nombre or "")
+            cliente_label = empresa_db or nombre_db or f"cliente {cliente_id}"
+
+            datos = {
+                "phone": state.get("phone") if state else None,
+                "empresa": empresa_db,
+                "nombre": nombre_db,
+                "cargo": contacto_db.cargo if contacto_db else None,
+                "email": contacto_db.email if contacto_db else None,
+                "ubicacion": cot.ubicacion_evento,
+                "url_pdf": url,
+            }
+            if primera_linea:
+                if primera_linea.servicio:
+                    datos["servicio"] = primera_linea.servicio.nombre
+                    datos["idioma"] = primera_linea.servicio.idioma_destino
+                if primera_linea.fecha_servicio_inicio:
+                    datos["fecha_inicio"] = str(primera_linea.fecha_servicio_inicio)
+                if primera_linea.fecha_servicio_fin:
+                    datos["fecha_fin"] = str(primera_linea.fecha_servicio_fin)
+                if primera_linea.horario:
+                    datos["horario"] = primera_linea.horario
+                if primera_linea.cantidad is not None:
+                    datos["cantidad"] = float(primera_linea.cantidad)
+                if primera_linea.num_interpretes:
+                    datos["interpretes"] = primera_linea.num_interpretes
+
             solicitud = SolicitudAgente(
                 cliente_id=cliente_id,
                 cotizacion_id=cotizacion_id,
@@ -180,17 +222,7 @@ async def enviar_cotizacion(
                     f"El agente envió la cotización {numero} al cliente {cliente_label}. "
                     f"Revisar precios, condiciones y confirmar si procede."
                 ),
-                datos_formulario={
-                    "phone": state.get("phone") if state else None,
-                    "nombre": nombre,
-                    "empresa": empresa,
-                    "servicio": state.get("servicio") if state else None,
-                    "idioma": state.get("idioma") if state else None,
-                    "fecha": state.get("fecha") if state else None,
-                    "ubicacion": state.get("ubicacion") if state else None,
-                    "cantidad": state.get("cantidad") if state else None,
-                    "url_pdf": url,
-                },
+                datos_formulario=datos,
             )
             db.add(solicitud)
             await db.flush()  # obtener solicitud.id antes del commit
