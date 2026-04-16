@@ -47,21 +47,6 @@ Si el cliente ya dio algunos de estos datos en su primer mensaje, solo pregunta 
 
 ---
 
-## FASE POST-COTIZACION — datos complementarios
-
-**Solo despues de que `enviar_cotizacion` haya sido ejecutado exitosamente**, pide los datos complementarios en un solo mensaje:
-
-> "[Nombre], para completar su perfil y tenerlo listo para la facturacion en caso de que apruebe el servicio: ¿me comparte su correo electronico, su cargo en la empresa, y si usted podria aprobar directamente este servicio o habria alguien mas que deba autorizarlo? Si nos indica tambien el NIT de la empresa, el sector en que operan (ej: salud, educacion, gobierno, logistica) y si son exentos de IVA, nos ahorraremos tiempo al facturar."
-
-Cuando el cliente responda:
-- Usa `crear_contacto(cliente_id, nombre, contacto_email, contacto_cargo, puede_aprobar_cotizacion)` para actualizar el contacto.
-- Si dio NIT, sector o exento_iva **y la empresa fue creada en esta misma conversacion** → usa `crear_cliente(nombre_empresa, contacto_nombre, nit=..., sector=..., exento_iva=...)` para actualizar.
-- Si la empresa ya existia en DB antes de esta conversacion → usa `crear_solicitud(tipo='atencion_humana', titulo='Completar datos empresa', descripcion='Cliente indico: NIT=..., sector=..., exento_iva=... — favor actualizar en el panel.')`.
-
-Si el cliente no responde estos datos en la misma conversacion, no insistas. Los pediras en la proxima interaccion.
-
----
-
 ## Si el cliente regresa con cotizacion pendiente
 
 Si `cotizacion_id` esta en el estado y el cliente vuelve a escribir:

@@ -111,7 +111,68 @@ export interface Solicitud {
   estado: string;
   prioridad: string | null;
   titulo: string;
+  descripcion: string | null;
   cliente_nombre: string | null;
   numero_cotizacion: string | null;
   created_at: string | null;
+}
+
+export interface SolicitudDetalle {
+  id: number;
+  tipo: string;
+  estado: string;
+  prioridad: string | null;
+  titulo: string;
+  descripcion: string | null;
+  datos_formulario: Record<string, unknown>;
+  respuesta_encargada: string | null;
+  created_at: string | null;
+  resuelta_at: string | null;
+  cliente_id: number | null;
+  cliente_nombre: string | null;
+  cliente_nivel_precio: string | null;
+  cliente_descuento_min: number | null;
+  cliente_descuento_max: number | null;
+  cliente_markup: number | null;
+  cliente_notas_pricing: string | null;
+  contacto_id: number | null;
+  contacto_nombre: string | null;
+  contacto_email: string | null;
+  contacto_telefono: string | null;
+  contacto_cargo: string | null;
+  cotizacion_id: number | null;
+  numero_cotizacion: string | null;
+  cotizacion_total: number | null;
+  cotizacion_estado: string | null;
+}
+
+export interface MensajeInterno {
+  id: number;
+  origen: "agente" | "encargada";
+  contenido: string;
+  tipo_contenido: string;
+  created_at: string | null;
+}
+
+export interface MensajesInternosResponse {
+  mensajes: MensajeInterno[];
+  solicitud_estado: string;
+}
+
+export interface ResolverSolicitudPayload {
+  accion: "aprobar" | "rechazar" | "modificar";
+  respuesta?: string;
+  nivel_precio?: string;
+  descuento_min?: number;
+  descuento_max?: number;
+  markup_personalizado?: number;
+  notas_pricing?: string;
+}
+
+export interface UpdatePricingPayload {
+  nivel_precio?: string;
+  descuento_min_porcentaje?: number;
+  descuento_max_porcentaje?: number;
+  markup_personalizado?: number;
+  notas_pricing?: string;
 }

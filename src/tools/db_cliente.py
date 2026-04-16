@@ -213,6 +213,86 @@ async def crear_cliente(
 
 
 @tool
+async def actualizar_contacto(
+    email: str = "",
+    cargo: str = "",
+    puede_aprobar_cotizacion: bool | None = None,
+    state: Annotated[dict, InjectedState] = None,
+) -> str:
+    """
+    Actualiza los datos del contacto activo en la conversación.
+    Úsala después de que el cliente aprueba la cotización para completar su perfil.
+    No crea un nuevo contacto — actualiza el existente identificado en esta conversación.
+
+    email: Correo electrónico del contacto.
+    cargo: Cargo del contacto en la empresa.
+    puede_aprobar_cotizacion: True si puede aprobar directamente, False si requiere otra autorización.
+    """
+    contacto_id = (state or {}).get("contacto_id")
+    if not contacto_id:
+        return json.dumps({"error": True, "mensaje": "No hay contacto_id en el estado."}, ensure_ascii=False)
+
+    async with async_session_factory() as db:
+        contacto = await db.get(Contacto, contacto_id)
+        if not contacto:
+            return json.dumps({"error": True, "mensaje": f"Contacto {contacto_id} no encontrado."}, ensure_ascii=False)
+        if email:
+            contacto.email = email
+        if cargo:
+            contacto.cargo = cargo
+        if puede_aprobar_cotizacion is not None:
+            contacto.puede_aprobar_cotizacion = puede_aprobar_cotizacion
+        await db.commit()
+
+    logger.info(f"Contacto actualizado: id={contacto_id}")
+    return json.dumps({"ok": True, "contacto_id": contacto_id}, ensure_ascii=False)
+
+
+@tool
+async def actualizar_cliente(
+    nit: str = "",
+    ciudad: str = "",
+    direccion: str = "",
+    sector: str = "",
+    exento_iva: bool | None = None,
+    state: Annotated[dict, InjectedState] = None,
+) -> str:
+    """
+    Actualiza los datos de la empresa activa en la conversación.
+    Úsala después de que el cliente aprueba la cotización para completar datos de facturación.
+    No crea un nuevo cliente — actualiza el existente identificado en esta conversación.
+
+    nit: NIT de la empresa (ej: "900123456-7").
+    ciudad: Ciudad sede de la empresa.
+    direccion: Dirección física de la empresa.
+    sector: Sector económico (ej: "Salud", "Educación", "Gobierno", "Logística").
+    exento_iva: True si es entidad exenta de IVA.
+    """
+    cliente_id = (state or {}).get("cliente_id")
+    if not cliente_id:
+        return json.dumps({"error": True, "mensaje": "No hay cliente_id en el estado."}, ensure_ascii=False)
+
+    async with async_session_factory() as db:
+        cliente = await db.get(Cliente, cliente_id)
+        if not cliente:
+            return json.dumps({"error": True, "mensaje": f"Cliente {cliente_id} no encontrado."}, ensure_ascii=False)
+        if nit:
+            cliente.nit = nit
+        if ciudad:
+            cliente.ciudad = ciudad
+        if direccion:
+            cliente.direccion = direccion
+        if sector:
+            cliente.sector = sector
+        if exento_iva is not None:
+            cliente.exento_iva = exento_iva
+        await db.commit()
+
+    logger.info(f"Cliente actualizado: id={cliente_id}")
+    return json.dumps({"ok": True, "cliente_id": cliente_id}, ensure_ascii=False)
+
+
+@tool
 async def crear_contacto(
     cliente_id: int,
     nombre_completo: str,

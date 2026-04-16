@@ -11,7 +11,7 @@ from src.agent.state import AgentState, missing_required, prompt_summary
 from src.config import get_settings
 from src.db.engine import async_session_factory
 from src.db.models import Cliente, Contacto
-from src.tools.db_cliente import buscar_cliente, crear_cliente, crear_contacto
+from src.tools.db_cliente import buscar_cliente, crear_cliente, crear_contacto, actualizar_contacto, actualizar_cliente
 from src.tools.db_conversacion import marcar_revisar
 from src.tools.db_cotizacion import (
     actualizar_cotizacion, calcular_cotizacion, crear_solicitud, enviar_cotizacion
@@ -56,6 +56,7 @@ PHASE_TOOLS: dict[str, list] = {
         actualizar_cotizacion, calcular_cotizacion, enviar_cotizacion,
         crear_solicitud, marcar_revisar,
         crear_contacto, crear_cliente,
+        actualizar_contacto, actualizar_cliente,
     ],
 }
 

@@ -15,6 +15,7 @@ from src.db.models import (
     Conversacion,
     Cotizacion,
     Mensaje,
+    MensajeInterno,
     Servicio,
     SolicitudAgente,
     TarifaAlquilerEquipo,
@@ -157,9 +158,86 @@ class SolicitudOut(BaseModel):
     estado: str
     prioridad: Optional[str]
     titulo: str
+    descripcion: Optional[str] = None
     cliente_nombre: Optional[str] = None
     numero_cotizacion: Optional[str] = None
     created_at: Optional[datetime.datetime]
+
+
+class MensajeInternoOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    origen: str
+    contenido: str
+    tipo_contenido: Optional[str]
+    created_at: Optional[datetime.datetime]
+
+
+class SolicitudDetalleOut(BaseModel):
+    id: int
+    tipo: str
+    estado: str
+    prioridad: Optional[str]
+    titulo: str
+    descripcion: Optional[str]
+    datos_formulario: dict
+    respuesta_encargada: Optional[str]
+    created_at: Optional[datetime.datetime]
+    resuelta_at: Optional[datetime.datetime]
+    # Cliente
+    cliente_id: Optional[int]
+    cliente_nombre: Optional[str]
+    cliente_nivel_precio: Optional[str]
+    cliente_descuento_min: Optional[float]
+    cliente_descuento_max: Optional[float]
+    cliente_markup: Optional[float]
+    cliente_notas_pricing: Optional[str]
+    # Contacto (de la cotizacion asociada)
+    contacto_id: Optional[int]
+    contacto_nombre: Optional[str]
+    contacto_email: Optional[str]
+    contacto_telefono: Optional[str]
+    contacto_cargo: Optional[str]
+    # Cotización
+    cotizacion_id: Optional[int]
+    numero_cotizacion: Optional[str]
+    cotizacion_total: Optional[float]
+    cotizacion_estado: Optional[str]
+
+
+class MensajeInternoIn(BaseModel):
+    contenido: str
+
+
+class ResolverSolicitudIn(BaseModel):
+    accion: str  # "aprobar" | "rechazar" | "modificar"
+    respuesta: Optional[str] = None
+    nivel_precio: Optional[str] = None
+    descuento_min: Optional[float] = None
+    descuento_max: Optional[float] = None
+    markup_personalizado: Optional[float] = None
+    notas_pricing: Optional[str] = None
+
+
+class UpdatePricingIn(BaseModel):
+    nivel_precio: Optional[str] = None
+    descuento_min_porcentaje: Optional[float] = None
+    descuento_max_porcentaje: Optional[float] = None
+    markup_personalizado: Optional[float] = None
+    notas_pricing: Optional[str] = None
+
+
+class UpdateContactoIn(BaseModel):
+    nombre_completo: Optional[str] = None
+    email: Optional[str] = None
+    telefono: Optional[str] = None
+    cargo: Optional[str] = None
+    puede_aprobar_cotizacion: Optional[bool] = None
+
+
+class MensajesInternosResponse(BaseModel):
+    mensajes: list[MensajeInternoOut]
+    solicitud_estado: str
 
 
 # ─────────────────────────────────────────
@@ -462,6 +540,7 @@ async def get_solicitudes(
             estado=s.estado,
             prioridad=s.prioridad,
             titulo=s.titulo,
+            descripcion=s.descripcion,
             cliente_nombre=s.cliente.nombre_empresa if s.cliente else None,
             numero_cotizacion=s.cotizacion.numero_cotizacion if s.cotizacion else None,
             created_at=s.created_at,
@@ -469,3 +548,206 @@ async def get_solicitudes(
         data.append(out)
 
     return PaginatedResponse(data=data, meta=_paginate(total or 0, page, page_size))
+
+
+def _build_solicitud_detalle(s: SolicitudAgente) -> SolicitudDetalleOut:
+    cliente = s.cliente
+    cot = s.cotizacion
+    contacto = cot.contacto if cot and cot.contacto else None
+    return SolicitudDetalleOut(
+        id=s.id,
+        tipo=s.tipo,
+        estado=s.estado,
+        prioridad=s.prioridad,
+        titulo=s.titulo,
+        descripcion=s.descripcion,
+        datos_formulario=s.datos_formulario or {},
+        respuesta_encargada=s.respuesta_encargada,
+        created_at=s.created_at,
+        resuelta_at=s.resuelta_at,
+        cliente_id=cliente.id if cliente else None,
+        cliente_nombre=cliente.nombre_empresa if cliente else None,
+        cliente_nivel_precio=cliente.nivel_precio if cliente else None,
+        cliente_descuento_min=float(cliente.descuento_min_porcentaje) if cliente and cliente.descuento_min_porcentaje is not None else None,
+        cliente_descuento_max=float(cliente.descuento_max_porcentaje) if cliente and cliente.descuento_max_porcentaje is not None else None,
+        cliente_markup=float(cliente.markup_personalizado) if cliente and cliente.markup_personalizado is not None else None,
+        cliente_notas_pricing=cliente.notas_pricing if cliente else None,
+        contacto_id=contacto.id if contacto else None,
+        contacto_nombre=contacto.nombre_completo if contacto else None,
+        contacto_email=contacto.email if contacto else None,
+        contacto_telefono=contacto.telefono if contacto else None,
+        contacto_cargo=contacto.cargo if contacto else None,
+        cotizacion_id=cot.id if cot else None,
+        numero_cotizacion=cot.numero_cotizacion if cot else None,
+        cotizacion_total=float(cot.total) if cot and cot.total is not None else None,
+        cotizacion_estado=cot.estado if cot else None,
+    )
+
+
+@router.get("/solicitudes/{solicitud_id}", response_model=SolicitudDetalleOut)
+async def get_solicitud_detalle(solicitud_id: int, db: AsyncSession = Depends(get_db)):
+    from fastapi import HTTPException
+    result = await db.execute(
+        select(SolicitudAgente)
+        .options(
+            selectinload(SolicitudAgente.cliente),
+            selectinload(SolicitudAgente.cotizacion).selectinload(Cotizacion.contacto),
+        )
+        .where(SolicitudAgente.id == solicitud_id)
+    )
+    s = result.scalar_one_or_none()
+    if not s:
+        raise HTTPException(status_code=404, detail="Solicitud no encontrada")
+    return _build_solicitud_detalle(s)
+
+
+@router.get("/solicitudes/{solicitud_id}/mensajes", response_model=MensajesInternosResponse)
+async def get_mensajes_internos(solicitud_id: int, db: AsyncSession = Depends(get_db)):
+    from fastapi import HTTPException
+    sol = await db.scalar(select(SolicitudAgente).where(SolicitudAgente.id == solicitud_id))
+    if not sol:
+        raise HTTPException(status_code=404, detail="Solicitud no encontrada")
+
+    result = await db.execute(
+        select(MensajeInterno)
+        .where(MensajeInterno.solicitud_id == solicitud_id)
+        .order_by(MensajeInterno.id.asc())
+    )
+    mensajes = result.scalars().all()
+    return MensajesInternosResponse(
+        mensajes=[MensajeInternoOut.model_validate(m) for m in mensajes],
+        solicitud_estado=sol.estado,
+    )
+
+
+@router.post("/solicitudes/{solicitud_id}/mensajes", response_model=MensajeInternoOut, status_code=201)
+async def post_mensaje_interno(
+    solicitud_id: int, body: MensajeInternoIn, db: AsyncSession = Depends(get_db)
+):
+    from fastapi import HTTPException
+    sol = await db.scalar(select(SolicitudAgente).where(SolicitudAgente.id == solicitud_id))
+    if not sol:
+        raise HTTPException(status_code=404, detail="Solicitud no encontrada")
+
+    msg = MensajeInterno(
+        solicitud_id=solicitud_id,
+        origen="encargada",
+        contenido=body.contenido,
+        tipo_contenido="texto",
+    )
+    db.add(msg)
+    await db.commit()
+    await db.refresh(msg)
+    return MensajeInternoOut.model_validate(msg)
+
+
+@router.patch("/solicitudes/{solicitud_id}/resolver", response_model=SolicitudDetalleOut)
+async def resolver_solicitud(
+    solicitud_id: int, body: ResolverSolicitudIn, db: AsyncSession = Depends(get_db)
+):
+    from fastapi import HTTPException
+    result = await db.execute(
+        select(SolicitudAgente)
+        .options(
+            selectinload(SolicitudAgente.cliente),
+            selectinload(SolicitudAgente.cotizacion).selectinload(Cotizacion.contacto),
+        )
+        .where(SolicitudAgente.id == solicitud_id)
+    )
+    s = result.scalar_one_or_none()
+    if not s:
+        raise HTTPException(status_code=404, detail="Solicitud no encontrada")
+
+    estado_map = {"aprobar": "aprobada", "rechazar": "rechazada", "modificar": "modificada"}
+    s.estado = estado_map.get(body.accion, body.accion)
+    s.respuesta_encargada = body.respuesta
+    s.resuelta_at = datetime.datetime.utcnow()
+
+    # Actualizar pricing del cliente si se proveen campos
+    if s.cliente and any([
+        body.nivel_precio, body.descuento_min is not None,
+        body.descuento_max is not None, body.markup_personalizado is not None,
+        body.notas_pricing,
+    ]):
+        if body.nivel_precio:
+            s.cliente.nivel_precio = body.nivel_precio
+        if body.descuento_min is not None:
+            s.cliente.descuento_min_porcentaje = body.descuento_min
+        if body.descuento_max is not None:
+            s.cliente.descuento_max_porcentaje = body.descuento_max
+        if body.markup_personalizado is not None:
+            s.cliente.markup_personalizado = body.markup_personalizado
+        if body.notas_pricing:
+            s.cliente.notas_pricing = body.notas_pricing
+
+    # Crear mensaje interno de confirmación
+    etiqueta = {"aprobar": "✅ Aprobada", "rechazar": "❌ Rechazada", "modificar": "✏️ Modificada"}.get(body.accion, body.accion)
+    texto = f"{etiqueta}" + (f": {body.respuesta}" if body.respuesta else "")
+    msg = MensajeInterno(
+        solicitud_id=solicitud_id,
+        origen="encargada",
+        contenido=texto,
+        tipo_contenido="accion",
+    )
+    db.add(msg)
+    await db.commit()
+    await db.refresh(s)
+    return _build_solicitud_detalle(s)
+
+
+@router.patch("/clientes/{cliente_id}/pricing", response_model=ClienteOut)
+async def update_cliente_pricing(
+    cliente_id: int, body: UpdatePricingIn, db: AsyncSession = Depends(get_db)
+):
+    from fastapi import HTTPException
+    result = await db.execute(select(Cliente).where(Cliente.id == cliente_id))
+    cliente = result.scalar_one_or_none()
+    if not cliente:
+        raise HTTPException(status_code=404, detail="Cliente no encontrado")
+
+    if body.nivel_precio is not None:
+        cliente.nivel_precio = body.nivel_precio
+    if body.descuento_min_porcentaje is not None:
+        cliente.descuento_min_porcentaje = body.descuento_min_porcentaje
+    if body.descuento_max_porcentaje is not None:
+        cliente.descuento_max_porcentaje = body.descuento_max_porcentaje
+    if body.markup_personalizado is not None:
+        cliente.markup_personalizado = body.markup_personalizado
+    if body.notas_pricing is not None:
+        cliente.notas_pricing = body.notas_pricing
+
+    await db.commit()
+    await db.refresh(cliente)
+
+    count_result = await db.scalar(
+        select(func.count(Contacto.id)).where(Contacto.cliente_id == cliente_id)
+    )
+    out = ClienteOut.model_validate(cliente)
+    out.contactos_count = count_result or 0
+    return out
+
+
+@router.patch("/contactos/{contacto_id}", response_model=ContactoOut)
+async def update_contacto(
+    contacto_id: int, body: UpdateContactoIn, db: AsyncSession = Depends(get_db)
+):
+    from fastapi import HTTPException
+    result = await db.execute(select(Contacto).where(Contacto.id == contacto_id))
+    contacto = result.scalar_one_or_none()
+    if not contacto:
+        raise HTTPException(status_code=404, detail="Contacto no encontrado")
+
+    if body.nombre_completo is not None:
+        contacto.nombre_completo = body.nombre_completo
+    if body.email is not None:
+        contacto.email = body.email
+    if body.telefono is not None:
+        contacto.telefono = body.telefono
+    if body.cargo is not None:
+        contacto.cargo = body.cargo
+    if body.puede_aprobar_cotizacion is not None:
+        contacto.puede_aprobar_cotizacion = body.puede_aprobar_cotizacion
+
+    await db.commit()
+    await db.refresh(contacto)
+    return ContactoOut.model_validate(contacto)

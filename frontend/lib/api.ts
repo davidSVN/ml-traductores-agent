@@ -1,8 +1,13 @@
 import type {
   Contacto,
   MensajesResponse,
+  MensajesInternosResponse,
+  MensajeInterno,
   PaginatedResponse,
+  ResolverSolicitudPayload,
+  SolicitudDetalle,
   Stats,
+  UpdatePricingPayload,
 } from "./types";
 import type { Conversacion, Cliente, Servicio, Equipo, Solicitud } from "./types";
 
@@ -65,3 +70,37 @@ export const getServicios = (p: { tipo?: string; activo?: boolean; page?: number
 // Solicitudes
 export const getSolicitudes = (p: { estado?: string; page?: number }) =>
   apiFetch<PaginatedResponse<Solicitud>>(`/dashboard/solicitudes?${qs(p as Record<string, string | number | boolean | undefined | null>)}`);
+
+export const getSolicitudDetalle = (id: number) =>
+  apiFetch<SolicitudDetalle>(`/dashboard/solicitudes/${id}`);
+
+export const getMensajesInternos = (id: number) =>
+  apiFetch<MensajesInternosResponse>(`/dashboard/solicitudes/${id}/mensajes`);
+
+export const postMensajeInterno = (id: number, contenido: string) =>
+  apiFetch<MensajeInterno>(`/dashboard/solicitudes/${id}/mensajes`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ contenido }),
+  });
+
+export const resolverSolicitud = (id: number, data: ResolverSolicitudPayload) =>
+  apiFetch<SolicitudDetalle>(`/dashboard/solicitudes/${id}/resolver`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+
+export const updateClientePricing = (clienteId: number, data: UpdatePricingPayload) =>
+  apiFetch<Cliente>(`/dashboard/clientes/${clienteId}/pricing`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+
+export const updateContacto = (contactoId: number, data: Partial<Contacto>) =>
+  apiFetch<Contacto>(`/dashboard/contactos/${contactoId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });

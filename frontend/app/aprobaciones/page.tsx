@@ -1,19 +1,42 @@
-import { SolicitudesTable } from "@/components/aprobaciones/SolicitudesTable";
-import { Bell } from "lucide-react";
+"use client";
+
+import { useState } from "react";
+import { SolicitudList } from "@/components/aprobaciones/SolicitudList";
+import { SolicitudChatWindow } from "@/components/aprobaciones/SolicitudChatWindow";
+import { MessageSquareDashed } from "lucide-react";
 
 export default function AprobacionesPage() {
-  return (
-    <div className="p-6">
-      <h1 className="text-text-primary text-xl font-bold mb-2">Aprobaciones</h1>
+  const [selectedId, setSelectedId] = useState<number | null>(null);
 
-      <div className="flex items-start gap-3 bg-accent-orange/10 border border-accent-orange/20 rounded-lg px-4 py-3 mb-6">
-        <Bell size={16} className="text-accent-orange mt-0.5 shrink-0" />
-        <p className="text-text-secondary text-sm">
-          Aquí aparecen las solicitudes que el agente escala para su revisión. Responda directamente al cliente por WhatsApp una vez revisada cada solicitud.
-        </p>
+  return (
+    <div className="flex h-screen overflow-hidden">
+      {/* Panel izquierdo: lista */}
+      <div className={`${selectedId !== null ? "hidden" : "flex"} md:flex flex-col w-full md:w-80 md:shrink-0`}>
+        <SolicitudList selectedId={selectedId} onSelect={setSelectedId} />
       </div>
 
-      <SolicitudesTable />
+      {/* Panel derecho: chat */}
+      <div className={`${selectedId !== null ? "flex" : "hidden"} md:flex flex-1 flex-col overflow-hidden`}>
+        {selectedId ? (
+          <>
+            {/* Botón volver en mobile */}
+            <div className="md:hidden px-4 py-2 border-b border-border bg-surface shrink-0">
+              <button
+                onClick={() => setSelectedId(null)}
+                className="text-text-muted text-sm hover:text-text-primary"
+              >
+                ← Volver a la lista
+              </button>
+            </div>
+            <SolicitudChatWindow solicitudId={selectedId} />
+          </>
+        ) : (
+          <div className="flex-1 flex flex-col items-center justify-center text-text-muted gap-3">
+            <MessageSquareDashed size={40} className="opacity-30" />
+            <p className="text-sm">Selecciona una solicitud para ver el detalle</p>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

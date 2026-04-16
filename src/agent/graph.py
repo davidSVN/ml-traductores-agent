@@ -8,7 +8,7 @@ from langgraph.prebuilt import ToolNode
 
 from src.agent.nodes import chatbot_node, detect_phase_node, lookup_contact_node, update_state_node
 from src.agent.state import AgentState
-from src.tools.db_cliente import buscar_cliente, crear_cliente, crear_contacto
+from src.tools.db_cliente import buscar_cliente, crear_cliente, crear_contacto, actualizar_contacto, actualizar_cliente
 from src.tools.db_conversacion import marcar_revisar
 from src.tools.db_cotizacion import (
     actualizar_cotizacion, calcular_cotizacion, crear_solicitud, enviar_cotizacion
@@ -22,6 +22,8 @@ ALL_TOOLS = [
     buscar_cliente,
     crear_cliente,
     crear_contacto,
+    actualizar_contacto,
+    actualizar_cliente,
     consultar_historial,
     consultar_tarifas,
     calcular_cotizacion,
