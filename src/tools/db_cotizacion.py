@@ -12,7 +12,7 @@ from langgraph.prebuilt import InjectedState
 from sqlalchemy import select
 
 from src.db.engine import async_session_factory
-from src.db.models import Cotizacion, Mensaje, SolicitudAgente
+from src.db.models import Cotizacion, Mensaje, MensajeInterno, SolicitudAgente
 
 logger = logging.getLogger(__name__)
 
@@ -146,8 +146,12 @@ async def enviar_cotizacion(
         )
         logger.info(f"Cotización {numero} enviada a {phone}")
 
-        # 5. Marcar como enviada + registrar mensaje en dashboard
+        # 5. Marcar como enviada + registrar mensaje + crear solicitud de aprobación
         conversacion_id = state.get("conversacion_id") if state else None
+        cliente_id = state.get("cliente_id") if state else None
+        contacto_id = state.get("contacto_id") if state else None
+        nombre = state.get("nombre", "") if state else ""
+        empresa = state.get("empresa", "") if state else ""
         async with async_session_factory() as db:
             db_cot = await db.get(Cotizacion, cotizacion_id)
             if db_cot:
@@ -162,13 +166,57 @@ async def enviar_cotizacion(
                     url_archivo=url,
                 ))
 
+            # Crear solicitud automática para que María Luisa vea en Aprobaciones
+            cliente_label = empresa or nombre or f"cliente {cliente_id}"
+            solicitud = SolicitudAgente(
+                cliente_id=cliente_id,
+                cotizacion_id=cotizacion_id,
+                conversacion_id=conversacion_id,
+                tipo="aprobar_cotizacion",
+                estado="pendiente",
+                prioridad="normal",
+                titulo=f"Cotización {numero} enviada a {cliente_label}",
+                descripcion=(
+                    f"El agente envió la cotización {numero} al cliente {cliente_label}. "
+                    f"Revisar precios, condiciones y confirmar si procede."
+                ),
+                datos_formulario={
+                    "phone": state.get("phone") if state else None,
+                    "nombre": nombre,
+                    "empresa": empresa,
+                    "servicio": state.get("servicio") if state else None,
+                    "idioma": state.get("idioma") if state else None,
+                    "fecha": state.get("fecha") if state else None,
+                    "ubicacion": state.get("ubicacion") if state else None,
+                    "cantidad": state.get("cantidad") if state else None,
+                    "url_pdf": url,
+                },
+            )
+            db.add(solicitud)
+            await db.flush()  # obtener solicitud.id antes del commit
+
+            # Mensaje inicial del agente en el chat interno
+            db.add(MensajeInterno(
+                solicitud_id=solicitud.id,
+                origen="agente",
+                contenido=(
+                    f"Acabo de enviar la cotización {numero} a {cliente_label}.\n\n"
+                    f"Por favor revisa los precios y condiciones. "
+                    f"Puedes aprobar, rechazar o ajustar el pricing del cliente desde aquí."
+                ),
+                tipo_contenido="texto",
+            ))
             await db.commit()
+            await db.refresh(solicitud)
+
+        logger.info(f"Solicitud aprobar_cotizacion creada automáticamente: id={solicitud.id} cot={numero}")
 
         return json.dumps({
             "enviada": True,
             "cotizacion_id": cotizacion_id,
             "numero_cotizacion": numero,
             "url": url,
+            "solicitud_id": solicitud.id,
         }, ensure_ascii=False)
 
     except Exception as e:
