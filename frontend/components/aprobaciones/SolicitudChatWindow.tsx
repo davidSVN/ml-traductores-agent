@@ -90,12 +90,12 @@ export function SolicitudChatWindow({ solicitudId }: Props) {
 
   if (!solicitud) {
     return (
-      <div className="flex-1 flex flex-col h-full">
-        <div className="p-4 border-b border-border space-y-2">
+      <div className="flex-1 flex flex-col min-h-0">
+        <div className="p-4 border-b border-border space-y-2 shrink-0">
           <Skeleton className="h-5 w-1/2" />
           <Skeleton className="h-4 w-1/3" />
         </div>
-        <div className="flex-1 p-4 space-y-3">
+        <div className="flex-1 min-h-0 p-4 space-y-3 overflow-y-auto">
           {Array.from({ length: 4 }).map((_, i) => (
             <Skeleton key={i} className="h-10 w-2/3" style={{ marginLeft: i % 2 === 0 ? 0 : "auto" }} />
           ))}
@@ -105,7 +105,7 @@ export function SolicitudChatWindow({ solicitudId }: Props) {
   }
 
   return (
-    <div className="flex-1 flex flex-col h-full overflow-hidden">
+    <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
       {/* Header */}
       <div className="px-4 py-3 border-b border-border bg-surface shrink-0">
         <div className="flex items-start gap-2">
@@ -127,7 +127,7 @@ export function SolicitudChatWindow({ solicitudId }: Props) {
       </div>
 
       {/* Mensajes */}
-      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
+      <div className="flex-1 min-h-0 overflow-y-auto px-4 py-4 space-y-3">
         {!mensajesData ? (
           <div className="space-y-3">
             {Array.from({ length: 3 }).map((_, i) => (

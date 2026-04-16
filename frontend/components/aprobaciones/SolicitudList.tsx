@@ -35,7 +35,7 @@ export function SolicitudList({ selectedId, onSelect }: SolicitudListProps) {
   const { data, isLoading } = useSolicitudes(estado);
 
   return (
-    <div className="w-full md:w-80 flex flex-col border-r border-border h-full bg-surface">
+    <div className="flex flex-col flex-1 min-h-0 bg-surface overflow-hidden">
       {/* Header */}
       <div className="px-4 py-4 border-b border-border">
         <h2 className="text-text-primary font-semibold text-sm mb-3">Aprobaciones</h2>
@@ -52,7 +52,7 @@ export function SolicitudList({ selectedId, onSelect }: SolicitudListProps) {
       </div>
 
       {/* Lista */}
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 min-h-0 overflow-y-auto">
         {isLoading ? (
           <div className="p-4 space-y-3">
             {Array.from({ length: 5 }).map((_, i) => (
