@@ -10,7 +10,6 @@ import { useMensajesInternos } from "@/lib/hooks/useMensajesInternos";
 import { postMensajeInterno, resolverSolicitud } from "@/lib/api";
 import { formatRelativeTime } from "@/lib/utils";
 import { cn } from "@/lib/utils";
-import { SolicitudContextCard } from "./SolicitudContextCard";
 import { PricingForm } from "./PricingForm";
 import type { ResolverSolicitudPayload } from "@/lib/types";
 
@@ -125,11 +124,6 @@ export function SolicitudChatWindow({ solicitudId }: Props) {
             </Badge>
           </div>
         </div>
-      </div>
-
-      {/* Contexto colapsable */}
-      <div className="shrink-0">
-        <SolicitudContextCard solicitud={solicitud} />
       </div>
 
       {/* Mensajes */}
