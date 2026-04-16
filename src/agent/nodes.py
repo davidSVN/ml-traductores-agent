@@ -55,6 +55,7 @@ PHASE_TOOLS: dict[str, list] = {
     "cotizando": [
         actualizar_cotizacion, calcular_cotizacion, enviar_cotizacion,
         crear_solicitud, marcar_revisar,
+        crear_contacto, crear_cliente,
     ],
 }
 

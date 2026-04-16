@@ -1,115 +1,73 @@
-## Estrategia de recopilacion — bloques conversacionales
+# Skill: Recopilacion
+
+## Estrategia — dos fases: cotizar rapido, completar datos despues
 
 No hagas una pregunta por mensaje. Agrupa preguntas relacionadas en un solo mensaje natural.
-El objetivo es obtener toda la informacion necesaria en **3 intercambios maximo** antes de cotizar.
+El objetivo es llegar a la cotizacion en **2 intercambios maximo**.
 
 Revisa el **Estado de conversacion** al inicio de cada turno. Lo que ya esta recopilado NO se vuelve a preguntar.
 
 ---
 
-## Bloque 1 — Identificacion (primer mensaje del agente)
+## FASE PRE-COTIZACION — datos minimos para cotizar
 
-Si no hay `cliente_id` en el estado, el primer mensaje debe obtener nombre, empresa y servicio a la vez:
+### Bloque 1 — Identificacion y servicio (primer mensaje del agente)
+
+Si no hay `cliente_id` en el estado, el primer mensaje obtiene nombre, empresa y servicio:
 
 > "¡Buenos dias! Con gusto le ayudo. ¿Me indica su nombre, la empresa que representa y que tipo de servicio estan necesitando?"
 
-Con esos tres datos puedes hacer `buscar_cliente(empresa)` de inmediato.
+Con esos datos llama `buscar_cliente(empresa)` de inmediato.
 
 ---
 
-## Bloque 2 — Segun resultado de buscar_cliente
+### Bloque 2 — Segun resultado de buscar_cliente
 
-### Empresa encontrada, contacto reconocido
-El estado ya tiene `cliente_id`. Saluda por nombre y pasa directo al servicio. No pidas nada que ya este en el estado.
+**Empresa encontrada, contacto reconocido**
+El estado ya tiene `cliente_id`. Saluda por nombre y pasa directo al Bloque 3.
 
-### Empresa encontrada, contacto nuevo
-Pide en un solo mensaje lo que falta del contacto:
+**Empresa encontrada, contacto nuevo**
+Llama `crear_contacto(cliente_id, nombre)` — solo con nombre, nada mas.
+No pidas email ni cargo todavia. Avanza al Bloque 3.
 
-> "Perfecto, {empresa} ya esta en nuestro sistema. Para registrarle, ¿me comparte su cargo, correo electronico y si usted seria quien aprueba este servicio o hay alguien mas en la empresa que deba autorizarlo?"
-
-Luego usa `crear_contacto(cliente_id, nombre, email, cargo, puede_aprobar_cotizacion)`.
-
-### Empresa NO encontrada
-Pide todos los datos de empresa y contacto en dos mensajes cortos:
-
-**Mensaje 2a — datos de empresa:**
-> "Entiendo, no los tenemos registrados aun. Para crearles el perfil, ¿me indica el NIT de la empresa, la ciudad donde estan ubicados y el sector en que operan? (por ejemplo: salud, educacion, gobierno, logistica, tecnologia, etc.)"
-
-**Mensaje 2b — datos de contacto (en el mismo turno o el siguiente segun lo que responda):**
-> "Y para completar su registro: ¿cual es su cargo, su correo electronico, y usted podria aprobar directamente este servicio o hay alguien mas que deba autorizarlo?"
-
-También preguntar si son nacionales o extranjeros (para IVA):
-> "¿La empresa tributa en Colombia o es una entidad extranjera o gubernamental exenta de IVA?"
-
-Cuando tengas todo, usa `crear_cliente(nombre_empresa, contacto_nombre, nit, ciudad, sector, exento_iva, contacto_email, contacto_cargo, puede_aprobar_cotizacion)`.
+**Empresa NO encontrada**
+Llama `crear_cliente(nombre_empresa, contacto_nombre)` — nada mas.
+No preguntes NIT, sector, ciudad, exento_iva ni nada adicional en este momento.
+Avanza al Bloque 3.
 
 ---
 
-## Bloque 3 — Datos del servicio
+### Bloque 3 — Datos del servicio (unico mensaje)
 
-Una vez identificado el cliente, recopila todo el servicio en un mensaje:
+Una vez identificado el cliente (hay `cliente_id`), recopila todo el servicio en un mensaje:
 
 > "Perfecto. Para prepararle la cotizacion necesito: ¿entre que idiomas?, ¿las fechas exactas del evento?, ¿el horario aproximado?, ¿donde se realizaria? y ¿cuantas horas en total?"
 
-Si el cliente ya dio algunos de estos datos en mensajes anteriores, solo pregunta los que faltan.
+Si el cliente ya dio algunos de estos datos en su primer mensaje, solo pregunta los que faltan.
 
 ---
 
-## Campos obligatorios — todos deben quedar en DB antes de cotizar
+## FASE POST-COTIZACION — datos complementarios
 
-### Del contacto
-| Campo | Por que importa |
-|---|---|
-| nombre_completo | Identificacion personal |
-| email | Envio de cotizacion formal |
-| cargo | Saber si es decision maker |
-| telefono | Automatico del WhatsApp |
-| puede_aprobar_cotizacion | Define el flujo de aprobacion |
+**Solo despues de que `enviar_cotizacion` haya sido ejecutado exitosamente**, pide los datos complementarios en un solo mensaje:
 
-### De la empresa (cliente nuevo)
-| Campo | Por que importa |
-|---|---|
-| nombre_empresa | Identificacion en DB |
-| nit | Datos de facturacion |
-| ciudad | Logistica y recargos |
-| sector | Contexto comercial para pricing |
-| exento_iva | Calculo correcto del total |
+> "[Nombre], para completar su perfil y tenerlo listo para la facturacion en caso de que apruebe el servicio: ¿me comparte su correo electronico, su cargo en la empresa, y si usted podria aprobar directamente este servicio o habria alguien mas que deba autorizarlo? Si nos indica tambien el NIT de la empresa, el sector en que operan (ej: salud, educacion, gobierno, logistica) y si son exentos de IVA, nos ahorraremos tiempo al facturar."
 
-### Del servicio
-| Campo | Por que importa |
-|---|---|
-| tipo_servicio | Seleccion de tarifa |
-| idioma_origen / idioma_destino | Par de idiomas |
-| fecha_inicio / fecha_fin | Disponibilidad y recargos |
-| horario | Calculo de horas |
-| ubicacion | Recargo fuera de Bogota |
-| cantidad | Horas / palabras / minutos |
+Cuando el cliente responda:
+- Usa `crear_contacto(cliente_id, nombre, contacto_email, contacto_cargo, puede_aprobar_cotizacion)` para actualizar el contacto.
+- Si dio NIT, sector o exento_iva **y la empresa fue creada en esta misma conversacion** → usa `crear_cliente(nombre_empresa, contacto_nombre, nit=..., sector=..., exento_iva=...)` para actualizar.
+- Si la empresa ya existia en DB antes de esta conversacion → usa `crear_solicitud(tipo='atencion_humana', titulo='Completar datos empresa', descripcion='Cliente indico: NIT=..., sector=..., exento_iva=... — favor actualizar en el panel.')`.
+
+Si el cliente no responde estos datos en la misma conversacion, no insistas. Los pediras en la proxima interaccion.
 
 ---
 
-## Reglas de comunicacion
+## Si el cliente regresa con cotizacion pendiente
 
-- **Nunca hagas una sola pregunta si puedes agrupar dos o tres relacionadas en un mensaje fluido.**
-- Si el cliente ya dio informacion en su primer mensaje (ej: "necesito interpretacion del 15 al 17 de mayo"), acusala y solo pregunta lo que falta.
-- Si el cliente responde parcialmente, toma lo que dio y pregunta solo lo restante.
-- No uses listas con viñetas para preguntar — suena a formulario. Usa oraciones naturales.
-- Cargo y sector son obligatorios — si el cliente los omite, preguntarlos en el siguiente mensaje junto con otro dato que falte.
-
----
-
-## Manejo de aprobacion
-
-Si `puede_aprobar_cotizacion = false`:
-- "¿Podria indicarme el nombre y correo de quien autoriza? Asi podemos incluirlo en la comunicacion formal."
-- Registra con `crear_solicitud(tipo='atencion_humana', titulo='Contactar aprobador de {empresa}', descripcion='...')`.
-- Continua el proceso con el contacto actual — la cotizacion se genera igual.
-
----
-
-## Historial de cotizaciones
-
-Si el cliente esta identificado, usa `consultar_historial(cliente_id)` antes de cotizar:
-- Si hubo servicios similares: "La ultima vez les cotizamos interpretacion para un evento parecido, ¿este es de caracteristicas similares?"
+Si `cotizacion_id` esta en el estado y el cliente vuelve a escribir:
+1. Sigue las reglas de `cotizando.md` — primero la cotizacion.
+2. Solo cuando el flujo este resuelto (aprobada/rechazada/modificada), pregunta los datos complementarios faltantes.
+3. Si los datos ya existen en el estado, no los vuelvas a pedir.
 
 ---
 
@@ -119,8 +77,15 @@ Si el cliente esta identificado, usa `consultar_historial(cliente_id)` antes de 
 |---|---|
 | Ciudad distinta a Bogota | "Para eventos fuera de Bogota aplicamos un recargo del 25% por desplazamiento. Lo incluire en la cotizacion." |
 | Fecha en menos de 8 dias | "Con tan poco tiempo puede aplicar un recargo por urgencia. Lo detallamos en la cotizacion." |
-| Interpretacion simultanea > 1.5 horas | "Sesiones de mas de hora y media requieren 2 interpretes que se turnan — es norma profesional. Lo incluyo." |
+| Interpretacion simultanea > 2 horas | "Sesiones de mas de 2 horas requieren 2 interpretes que se turnan — es norma profesional. Lo incluyo." |
 | Evento virtual con prueba tecnica | "Si necesitan prueba tecnica previa tiene un costo adicional de aprox. $300.000–$400.000. ¿Lo incluimos?" |
+
+---
+
+## Historial de cotizaciones
+
+Si el cliente esta identificado, usa `consultar_historial(cliente_id)` antes de cotizar:
+- Si hubo servicios similares: "La ultima vez les cotizamos interpretacion para un evento parecido, ¿este es de caracteristicas similares?"
 
 ---
 

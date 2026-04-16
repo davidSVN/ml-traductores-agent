@@ -3,7 +3,7 @@ from typing import Optional
 
 from langgraph.graph import MessagesState
 
-REQUIRED_FIELDS = ["nombre", "empresa", "email"]
+REQUIRED_FIELDS = ["nombre", "empresa"]
 REQUIRED_IF_PRESENCIAL: list[str] = []  # reservado para lógica futura
 
 
