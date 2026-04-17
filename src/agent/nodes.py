@@ -14,7 +14,7 @@ from src.db.models import Cliente, Contacto
 from src.tools.db_cliente import buscar_cliente, crear_cliente, crear_contacto, actualizar_contacto, actualizar_cliente
 from src.tools.db_conversacion import marcar_revisar
 from src.tools.db_cotizacion import (
-    actualizar_cotizacion, calcular_cotizacion, crear_solicitud, enviar_cotizacion
+    actualizar_cotizacion, calcular_cotizacion, crear_solicitud, enviar_cotizacion, generar_contrato
 )
 from src.tools.db_servicios import consultar_historial, consultar_tarifas, listar_servicios
 
@@ -54,7 +54,7 @@ PHASE_TOOLS: dict[str, list] = {
     ],
     "cotizando": [
         actualizar_cotizacion, calcular_cotizacion, enviar_cotizacion,
-        crear_solicitud, marcar_revisar,
+        generar_contrato, crear_solicitud, marcar_revisar,
         crear_contacto, crear_cliente,
         actualizar_contacto, actualizar_cliente,
     ],

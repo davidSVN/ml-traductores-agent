@@ -419,3 +419,86 @@ async def actualizar_cotizacion(
         "numero_cotizacion": cot.numero_cotizacion,
         "estado": estado,
     }, ensure_ascii=False)
+
+
+@tool
+async def generar_contrato(
+    cotizacion_id: int,
+    state: Annotated[dict, InjectedState] = None,
+) -> str:
+    """
+    Genera el PDF de confirmación de servicio (contrato) y lo envía por WhatsApp.
+    Llama esta herramienta DESPUÉS de actualizar_cotizacion(id, "aprobada").
+    Incluye los datos del servicio, condiciones económicas y datos bancarios para el anticipo.
+
+    cotizacion_id: ID de la cotización aprobada.
+    """
+    from src.services.documento import docx_a_pdf, generar_word_contrato
+    from src.storage.s3 import upload_contrato
+    from src.whatsapp.client import WhatsAppClient
+
+    phone = state.get("phone", "") if state else ""
+    if not phone:
+        return json.dumps({"error": True, "mensaje": "No hay número de teléfono en estado."}, ensure_ascii=False)
+
+    async with async_session_factory() as db:
+        cot = await db.get(Cotizacion, cotizacion_id)
+
+    if not cot:
+        return json.dumps({"error": True, "mensaje": f"Cotización {cotizacion_id} no encontrada."}, ensure_ascii=False)
+
+    numero = cot.numero_cotizacion
+    numero_cont = numero.replace("COT-", "CONT-")
+
+    try:
+        logger.info(f"Generando contrato para cotización {numero}...")
+        docx_bytes = await generar_word_contrato(cotizacion_id)
+        pdf_bytes = docx_a_pdf(docx_bytes)
+
+        logger.info("Subiendo contrato a S3...")
+        url = await upload_contrato(cotizacion_id, pdf_bytes, numero)
+
+        caption = (
+            f"Adjunto la confirmación formal de servicio *{numero_cont}*. "
+            "Incluye los datos bancarios para el anticipo. Quedamos atentos."
+        )
+        wa = WhatsAppClient()
+        await wa.send_document(
+            to=phone,
+            document_url=url,
+            filename=f"{numero_cont}.pdf",
+            caption=caption,
+        )
+        logger.info(f"Contrato {numero_cont} enviado a {phone}")
+
+        conversacion_id = state.get("conversacion_id") if state else None
+        async with async_session_factory() as db:
+            if conversacion_id:
+                db.add(Mensaje(
+                    conversacion_id=conversacion_id,
+                    origen="agente",
+                    contenido=f"Contrato {numero_cont} enviado",
+                    tipo_contenido="documento",
+                    url_archivo=url,
+                ))
+            from src.db.models import Seguimiento
+            db.add(Seguimiento(
+                cotizacion_id=cotizacion_id,
+                metodo="whatsapp",
+                resultado="contrato_enviado",
+            ))
+            await db.commit()
+
+        return json.dumps({
+            "enviado": True,
+            "cotizacion_id": cotizacion_id,
+            "numero_contrato": numero_cont,
+            "url": url,
+        }, ensure_ascii=False)
+
+    except Exception as e:
+        logger.error(f"Error generando contrato {cotizacion_id}: {e}", exc_info=True)
+        return json.dumps({
+            "error": True,
+            "mensaje": f"Error generando el contrato: {e}",
+        }, ensure_ascii=False)

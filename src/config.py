@@ -44,6 +44,9 @@ class Settings(BaseSettings):
     aws_s3_bucket: str = "ml-traductores-cotizaciones"
     aws_region: str = "us-east-1"
 
+    # Cron secret (Railway cron job header validation)
+    cron_secret: str = "cron-secret-change-me"
+
     # Server
     app_env: str = "development"
     app_host: str = "0.0.0.0"

@@ -39,10 +39,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-from src.api import dashboard, webhooks  # noqa: E402
+from src.api import cron, dashboard, webhooks  # noqa: E402
 
 app.include_router(webhooks.router)
 app.include_router(dashboard.router)
+app.include_router(cron.router)
 
 
 @app.get("/health")
