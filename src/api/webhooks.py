@@ -98,7 +98,7 @@ async def receive_message(request: Request, db: AsyncSession = Depends(get_db)):
         config=config,
     )
 
-    respuesta = result["messages"][-1].content
+    respuesta = _extract_text(result["messages"][-1].content)
 
     # Update conversation link to client if resolved by LangGraph
     cliente_id = result.get("cliente_id")
@@ -125,6 +125,19 @@ async def receive_message(request: Request, db: AsyncSession = Depends(get_db)):
     await db.commit()
     return {"status": "ok"}
 
+
+
+def _extract_text(content) -> str:
+    """Extrae texto plano del content de un AIMessage (string o lista de bloques)."""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts = [
+            block["text"] for block in content
+            if isinstance(block, dict) and block.get("type") == "text"
+        ]
+        return "\n".join(parts)
+    return str(content)
 
 
 def _extract_message(payload: dict) -> dict | None:
