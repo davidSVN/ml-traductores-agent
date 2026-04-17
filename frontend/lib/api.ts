@@ -1,8 +1,10 @@
 import type {
   Contacto,
+  LineaCotizacion,
   MensajesResponse,
   MensajesInternosResponse,
   MensajeInterno,
+  ModificarLineasPayload,
   PaginatedResponse,
   ResolverSolicitudPayload,
   SolicitudDetalle,
@@ -101,6 +103,16 @@ export const updateClientePricing = (clienteId: number, data: UpdatePricingPaylo
 export const updateContacto = (contactoId: number, data: Partial<Contacto>) =>
   apiFetch<Contacto>(`/dashboard/contactos/${contactoId}`, {
     method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+
+export const getLineasCotizacion = (cotizacionId: number) =>
+  apiFetch<LineaCotizacion[]>(`/dashboard/cotizaciones/${cotizacionId}/lineas`);
+
+export const modificarLineas = (solicitudId: number, data: ModificarLineasPayload) =>
+  apiFetch<SolicitudDetalle>(`/dashboard/solicitudes/${solicitudId}/modificar-lineas`, {
+    method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data),
   });

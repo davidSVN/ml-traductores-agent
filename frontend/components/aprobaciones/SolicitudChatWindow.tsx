@@ -11,6 +11,7 @@ import { postMensajeInterno, resolverSolicitud } from "@/lib/api";
 import { formatRelativeTime } from "@/lib/utils";
 import { cn } from "@/lib/utils";
 import { PricingForm } from "./PricingForm";
+import { ModificarLineasForm } from "./ModificarLineasForm";
 import type { ResolverSolicitudPayload } from "@/lib/types";
 
 interface Props {
@@ -198,11 +199,26 @@ export function SolicitudChatWindow({ solicitudId }: Props) {
         </div>
       )}
 
-      {/* Formulario de acción */}
-      {accionActiva && (
+      {/* Formulario de modificar líneas */}
+      {accionActiva === "modificar" && solicitud.cotizacion_id && (
+        <div className="shrink-0">
+          <ModificarLineasForm
+            solicitudId={solicitudId}
+            cotizacionId={solicitud.cotizacion_id}
+            onDone={async () => {
+              setAccionActiva(null);
+              await mutateSolicitud();
+              await mutateMensajes();
+            }}
+            onCancel={() => setAccionActiva(null)}
+          />
+        </div>
+      )}
+
+      {/* Formulario aprobar / rechazar */}
+      {(accionActiva === "aprobar" || accionActiva === "rechazar") && (
         <div className="shrink-0">
           <PricingForm
-            solicitud={solicitud}
             accion={accionActiva}
             onSubmit={handleResolver}
             onCancel={() => setAccionActiva(null)}

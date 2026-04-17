@@ -15,6 +15,7 @@ from src.db.models import (
     Contacto,
     Conversacion,
     Cotizacion,
+    LineaCotizacion,
     Mensaje,
     MensajeInterno,
     Servicio,
@@ -241,6 +242,25 @@ class MensajesInternosResponse(BaseModel):
     solicitud_estado: str
 
 
+class LineaCotizacionOut(BaseModel):
+    id: int
+    descripcion: str
+    precio_total: float
+    fecha_inicio: Optional[str] = None
+    fecha_fin: Optional[str] = None
+    horario: Optional[str] = None
+
+
+class ModificarLineaIn(BaseModel):
+    linea_id: int
+    nuevo_precio: float
+
+
+class ModificarLineasIn(BaseModel):
+    lineas: list[ModificarLineaIn]
+    respuesta: Optional[str] = None
+
+
 # ─────────────────────────────────────────
 # HELPERS
 # ─────────────────────────────────────────
@@ -286,6 +306,51 @@ async def _ejecutar_accion_aprobacion(
             await handle_rechazo(solicitud_id, cotizacion_id)
     except Exception as e:
         logger.error(f"_ejecutar_accion_aprobacion error (sol={solicitud_id}): {e}", exc_info=True)
+
+
+async def _regenerar_y_enviar_pdf(
+    solicitud_id: int,
+    cotizacion_id: int,
+    phone: str,
+    numero_cotizacion: str,
+    total: float,
+    respuesta: Optional[str],
+) -> None:
+    """Regenera el PDF con los precios actualizados y lo envía al cliente por WhatsApp."""
+    from src.services.documento import docx_a_pdf, generar_word
+    from src.storage.s3 import upload_cotizacion
+    from src.whatsapp.client import WhatsAppClient
+    try:
+        docx_bytes = await generar_word(cotizacion_id)
+        pdf_bytes = docx_a_pdf(docx_bytes)
+        url = await upload_cotizacion(cotizacion_id, pdf_bytes, numero_cotizacion)
+
+        total_fmt = f"${total:,.0f}".replace(",", ".")
+        async with async_session_factory() as db:
+            sol = await db.get(SolicitudAgente, solicitud_id)
+            if sol:
+                datos = dict(sol.datos_formulario or {})
+                datos["url_pdf"] = url
+                sol.datos_formulario = datos
+            db.add(MensajeInterno(
+                solicitud_id=solicitud_id,
+                origen="agente",
+                contenido=f"✏️ PDF regenerado y enviado al cliente — {numero_cotizacion} · Nuevo total: {total_fmt}",
+                tipo_contenido="accion",
+            ))
+            await db.commit()
+
+        caption = respuesta or "Te enviamos una versión actualizada de la cotización con los precios ajustados."
+        wa = WhatsAppClient()
+        await wa.send_document(
+            to=phone,
+            document_url=url,
+            filename=f"{numero_cotizacion}.pdf",
+            caption=caption,
+        )
+        logger.info(f"PDF modificado enviado a {phone} — {numero_cotizacion}")
+    except Exception as e:
+        logger.error(f"_regenerar_y_enviar_pdf error: {e}", exc_info=True)
 
 
 async def _procesar_texto_encargada(solicitud_id: int, texto: str) -> None:
@@ -885,3 +950,122 @@ async def update_contacto(
     await db.commit()
     await db.refresh(contacto)
     return ContactoOut.model_validate(contacto)
+
+
+@router.get("/cotizaciones/{cotizacion_id}/lineas", response_model=list[LineaCotizacionOut])
+async def get_lineas_cotizacion(cotizacion_id: int, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(
+        select(LineaCotizacion)
+        .options(selectinload(LineaCotizacion.servicio))
+        .where(LineaCotizacion.cotizacion_id == cotizacion_id)
+        .order_by(LineaCotizacion.orden, LineaCotizacion.id)
+    )
+    lineas = result.scalars().all()
+
+    out = []
+    for linea in lineas:
+        nombre = linea.servicio.nombre if linea.servicio else (linea.descripcion_generada or "Ítem")
+        idioma = f" ({linea.servicio.idioma_destino})" if linea.servicio and linea.servicio.idioma_destino else ""
+        detalles = []
+        if linea.fecha_servicio_inicio:
+            fecha_str = linea.fecha_servicio_inicio.strftime("%d/%m/%Y")
+            if linea.fecha_servicio_fin and linea.fecha_servicio_fin != linea.fecha_servicio_inicio:
+                fecha_str += f" – {linea.fecha_servicio_fin.strftime('%d/%m/%Y')}"
+            detalles.append(fecha_str)
+        if linea.horario:
+            detalles.append(linea.horario)
+        if linea.num_interpretes and linea.num_interpretes > 1:
+            detalles.append(f"{linea.num_interpretes} intérpretes")
+        if linea.num_equipos:
+            detalles.append(f"{linea.num_equipos} equipos")
+
+        descripcion = f"{nombre}{idioma}"
+        if detalles:
+            descripcion += f" — {' · '.join(detalles)}"
+
+        out.append(LineaCotizacionOut(
+            id=linea.id,
+            descripcion=descripcion,
+            precio_total=float(linea.precio_total),
+            fecha_inicio=str(linea.fecha_servicio_inicio) if linea.fecha_servicio_inicio else None,
+            fecha_fin=str(linea.fecha_servicio_fin) if linea.fecha_servicio_fin else None,
+            horario=linea.horario,
+        ))
+
+    return out
+
+
+@router.post("/solicitudes/{solicitud_id}/modificar-lineas", response_model=SolicitudDetalleOut)
+async def modificar_lineas_cotizacion(
+    solicitud_id: int, body: ModificarLineasIn, db: AsyncSession = Depends(get_db)
+):
+    from decimal import Decimal
+    from fastapi import HTTPException
+
+    result = await db.execute(
+        select(SolicitudAgente)
+        .options(
+            selectinload(SolicitudAgente.cliente),
+            selectinload(SolicitudAgente.cotizacion).selectinload(Cotizacion.contacto),
+        )
+        .where(SolicitudAgente.id == solicitud_id)
+    )
+    s = result.scalar_one_or_none()
+    if not s:
+        raise HTTPException(status_code=404, detail="Solicitud no encontrada")
+
+    cot_id = s.cotizacion_id
+    if not cot_id:
+        raise HTTPException(status_code=400, detail="Solicitud sin cotización asociada")
+
+    # Actualizar precio_total de cada línea
+    nuevo_subtotal = Decimal("0")
+    for item in body.lineas:
+        linea = await db.get(LineaCotizacion, item.linea_id)
+        if linea and linea.cotizacion_id == cot_id:
+            linea.precio_total = Decimal(str(item.nuevo_precio))
+            nuevo_subtotal += linea.precio_total
+
+    # Recalcular totales de la cotización
+    cot = await db.get(Cotizacion, cot_id)
+    if cot:
+        cot.subtotal = nuevo_subtotal
+        if not cot.exento_iva:
+            cot.iva = nuevo_subtotal * Decimal("0.19")
+            cot.total = nuevo_subtotal + cot.iva
+        else:
+            cot.iva = Decimal("0")
+            cot.total = nuevo_subtotal
+
+    # Marcar solicitud como modificada
+    s.estado = "modificada"
+    s.respuesta_encargada = body.respuesta
+    s.resuelta_at = datetime.datetime.utcnow()
+
+    total_fmt = f"${float(cot.total):,.0f}".replace(",", ".") if cot and cot.total else "—"
+    db.add(MensajeInterno(
+        solicitud_id=solicitud_id,
+        origen="encargada",
+        contenido=(
+            f"✏️ Precios ajustados manualmente — Nuevo total: {total_fmt}"
+            + (f"\n{body.respuesta}" if body.respuesta else "")
+        ),
+        tipo_contenido="accion",
+    ))
+
+    await db.commit()
+    await db.refresh(s)
+
+    # Regenerar PDF y enviar al cliente en background
+    phone = (s.datos_formulario or {}).get("phone", "")
+    if phone and cot:
+        asyncio.create_task(_regenerar_y_enviar_pdf(
+            solicitud_id=solicitud_id,
+            cotizacion_id=cot_id,
+            phone=phone,
+            numero_cotizacion=cot.numero_cotizacion,
+            total=float(cot.total) if cot.total else 0.0,
+            respuesta=body.respuesta,
+        ))
+
+    return _build_solicitud_detalle(s)

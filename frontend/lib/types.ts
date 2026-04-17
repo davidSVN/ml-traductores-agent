@@ -176,3 +176,22 @@ export interface UpdatePricingPayload {
   markup_personalizado?: number;
   notas_pricing?: string;
 }
+
+export interface LineaCotizacion {
+  id: number;
+  descripcion: string;
+  precio_total: number;
+  fecha_inicio: string | null;
+  fecha_fin: string | null;
+  horario: string | null;
+}
+
+export interface ModificarLineaPayload {
+  linea_id: number;
+  nuevo_precio: number;
+}
+
+export interface ModificarLineasPayload {
+  lineas: ModificarLineaPayload[];
+  respuesta?: string;
+}
