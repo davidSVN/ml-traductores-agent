@@ -210,22 +210,40 @@ async def enviar_cotizacion(
                 if primera_linea.num_interpretes:
                     datos["interpretes"] = primera_linea.num_interpretes
 
-            solicitud = SolicitudAgente(
-                cliente_id=cliente_id,
-                cotizacion_id=cotizacion_id,
-                conversacion_id=conversacion_id,
-                tipo="aprobar_cotizacion",
-                estado="pendiente",
-                prioridad="normal",
-                titulo=f"Cotización {numero} enviada a {cliente_label}",
-                descripcion=(
-                    f"El agente envió la cotización {numero} al cliente {cliente_label}. "
-                    f"Revisar precios, condiciones y confirmar si procede."
-                ),
-                datos_formulario=datos,
+            # Reutilizar solicitud existente del mismo cliente (un chat por cliente)
+            existing_result = await db.execute(
+                select(SolicitudAgente)
+                .where(SolicitudAgente.cliente_id == cliente_id)
+                .where(SolicitudAgente.tipo == "aprobar_cotizacion")
+                .order_by(SolicitudAgente.created_at.desc())
+                .limit(1)
             )
-            db.add(solicitud)
-            await db.flush()  # obtener solicitud.id antes del commit
+            existing = existing_result.scalar_one_or_none()
+
+            if existing:
+                existing.cotizacion_id = cotizacion_id
+                existing.estado = "pendiente"
+                existing.datos_formulario = datos
+                existing.titulo = f"Cotizaciones de {cliente_label}"
+                solicitud = existing
+                await db.flush()
+            else:
+                solicitud = SolicitudAgente(
+                    cliente_id=cliente_id,
+                    cotizacion_id=cotizacion_id,
+                    conversacion_id=conversacion_id,
+                    tipo="aprobar_cotizacion",
+                    estado="pendiente",
+                    prioridad="normal",
+                    titulo=f"Cotizaciones de {cliente_label}",
+                    descripcion=(
+                        f"Cotizaciones del agente al cliente {cliente_label}. "
+                        f"Revisar precios, condiciones y confirmar si procede."
+                    ),
+                    datos_formulario=datos,
+                )
+                db.add(solicitud)
+                await db.flush()  # obtener solicitud.id antes del commit
 
             # Construir resumen de líneas de cotización
             lineas_texto = []

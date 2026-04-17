@@ -1,3 +1,4 @@
+import asyncio
 import datetime
 import logging
 from typing import Generic, Optional, TypeVar
@@ -8,7 +9,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from src.db.engine import get_db
+from src.db.engine import async_session_factory, get_db
 from src.db.models import (
     Cliente,
     Contacto,
@@ -248,6 +249,112 @@ class MensajesInternosResponse(BaseModel):
 def _paginate(total: int, page: int, page_size: int) -> PaginationMeta:
     pages = max(1, (total + page_size - 1) // page_size)
     return PaginationMeta(total=total, page=page, page_size=page_size, pages=pages)
+
+
+# ─────────────────────────────────────────
+# BACKGROUND TASKS DE APROBACIÓN
+# ─────────────────────────────────────────
+
+
+async def _ejecutar_accion_aprobacion(
+    solicitud_id: int,
+    accion: str,
+    phone: str,
+    cliente_nombre: str,
+    cotizacion_id: int,
+    numero_cotizacion: str,
+    total: float,
+    descuento_min: Optional[float],
+    markup_personalizado: Optional[float],
+    respuesta: Optional[str],
+) -> None:
+    """Dispatcher que llama handle_aprobacion/modificacion/rechazo según acción.
+    El pricing del cliente ya fue actualizado por resolver_solicitud antes de llamar aquí."""
+    from src.services.aprobacion import handle_aprobacion, handle_modificacion, handle_rechazo
+    try:
+        if accion == "aprobar":
+            await handle_aprobacion(
+                solicitud_id, cotizacion_id, phone, cliente_nombre,
+                numero_cotizacion, total, respuesta,
+            )
+        elif accion == "modificar":
+            await handle_modificacion(
+                solicitud_id, cotizacion_id, phone, descuento_min, markup_personalizado, respuesta,
+                actualizar_pricing_cliente=False,  # ya actualizado por resolver_solicitud
+            )
+        elif accion == "rechazar":
+            await handle_rechazo(solicitud_id, cotizacion_id)
+    except Exception as e:
+        logger.error(f"_ejecutar_accion_aprobacion error (sol={solicitud_id}): {e}", exc_info=True)
+
+
+async def _procesar_texto_encargada(solicitud_id: int, texto: str) -> None:
+    """Carga contexto, llama a interpretar_mensaje_encargada y actúa si corresponde."""
+    from src.services.aprobacion import (
+        handle_aprobacion,
+        handle_modificacion,
+        interpretar_mensaje_encargada,
+    )
+    try:
+        async with async_session_factory() as db:
+            result = await db.execute(
+                select(SolicitudAgente)
+                .options(
+                    selectinload(SolicitudAgente.cliente),
+                    selectinload(SolicitudAgente.cotizacion),
+                )
+                .where(SolicitudAgente.id == solicitud_id)
+            )
+            sol = result.scalar_one_or_none()
+            if not sol:
+                return
+
+            msgs_result = await db.execute(
+                select(MensajeInterno)
+                .where(MensajeInterno.solicitud_id == solicitud_id)
+                .order_by(MensajeInterno.id.asc())
+            )
+            mensajes = msgs_result.scalars().all()
+            historial = [{"origen": m.origen, "contenido": m.contenido} for m in mensajes]
+
+            datos = sol.datos_formulario or {}
+            phone = datos.get("phone", "")
+            cot_id = sol.cotizacion_id
+            cot_numero = sol.cotizacion.numero_cotizacion if sol.cotizacion else ""
+            cot_total = float(sol.cotizacion.total) if sol.cotizacion and sol.cotizacion.total else 0.0
+            cliente_label = datos.get("empresa") or datos.get("nombre") or "cliente"
+
+            contexto = {
+                "cliente": cliente_label,
+                "numero_cotizacion": cot_numero,
+                "total": cot_total,
+                "estado_solicitud": sol.estado,
+            }
+
+        resultado = await interpretar_mensaje_encargada(solicitud_id, texto, historial, contexto)
+        accion = resultado.get("accion", "informativo")
+        respuesta_agente = resultado.get("respuesta_agente", "")
+        descuento = resultado.get("descuento")
+
+        if accion == "aprobar" and phone and cot_id:
+            await handle_aprobacion(
+                solicitud_id, cot_id, phone, cliente_label, cot_numero, cot_total, respuesta_agente,
+            )
+        elif accion == "modificar" and phone and cot_id:
+            await handle_modificacion(
+                solicitud_id, cot_id, phone, descuento, None, respuesta_agente,
+            )
+        elif respuesta_agente:
+            async with async_session_factory() as db:
+                db.add(MensajeInterno(
+                    solicitud_id=solicitud_id,
+                    origen="agente",
+                    contenido=respuesta_agente,
+                    tipo_contenido="texto",
+                ))
+                await db.commit()
+    except Exception as e:
+        logger.error(f"_procesar_texto_encargada error (sol={solicitud_id}): {e}", exc_info=True)
 
 
 # ─────────────────────────────────────────
@@ -638,6 +745,11 @@ async def post_mensaje_interno(
     db.add(msg)
     await db.commit()
     await db.refresh(msg)
+
+    # Interpretar mensaje en background (solo si solicitud aún pendiente)
+    if sol.estado == "pendiente":
+        asyncio.create_task(_procesar_texto_encargada(solicitud_id, body.contenido))
+
     return MensajeInternoOut.model_validate(msg)
 
 
@@ -692,6 +804,28 @@ async def resolver_solicitud(
     db.add(msg)
     await db.commit()
     await db.refresh(s)
+
+    # Ejecutar acción de aprobación en background (WhatsApp + PDF si aplica)
+    phone = (s.datos_formulario or {}).get("phone", "")
+    cot_id = s.cotizacion_id
+    if phone and cot_id:
+        datos = s.datos_formulario or {}
+        cliente_label = datos.get("empresa") or datos.get("nombre") or "cliente"
+        cot_numero = s.cotizacion.numero_cotizacion if s.cotizacion else ""
+        cot_total = float(s.cotizacion.total) if s.cotizacion and s.cotizacion.total else 0.0
+        asyncio.create_task(_ejecutar_accion_aprobacion(
+            solicitud_id=solicitud_id,
+            accion=body.accion,
+            phone=phone,
+            cliente_nombre=cliente_label,
+            cotizacion_id=cot_id,
+            numero_cotizacion=cot_numero,
+            total=cot_total,
+            descuento_min=body.descuento_min,
+            markup_personalizado=body.markup_personalizado,
+            respuesta=body.respuesta,
+        ))
+
     return _build_solicitud_detalle(s)
 
 
