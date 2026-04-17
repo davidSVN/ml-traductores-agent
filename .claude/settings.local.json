@@ -62,7 +62,8 @@
       "Bash(.venv/Scripts/python.exe -m scripts.actualizar_precios_interpretacion)",
       "Skill(update-config)",
       "Skill(update-config:*)",
-      "Bash(npx wrangler:*)"
+      "Bash(npx wrangler:*)",
+      "Bash(python -c ':*)"
     ]
   }
 }
