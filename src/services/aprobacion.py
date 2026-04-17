@@ -222,7 +222,7 @@ async def interpretar_mensaje_encargada(
     )
 
     llm = ChatAnthropic(
-        model="claude-3-5-haiku-20241022",
+        model="claude-haiku-4-5",
         api_key=settings.anthropic_api_key,
         max_tokens=512,
     )
