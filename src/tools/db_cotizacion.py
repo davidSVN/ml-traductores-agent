@@ -12,7 +12,8 @@ from langgraph.prebuilt import InjectedState
 from sqlalchemy import select
 
 from src.db.engine import async_session_factory
-from sqlalchemy.orm import flag_modified, selectinload
+from sqlalchemy.orm import selectinload
+from sqlalchemy.orm.attributes import flag_modified
 
 from src.db.models import Cotizacion, LineaCotizacion, Mensaje, MensajeInterno, SolicitudAgente
 
