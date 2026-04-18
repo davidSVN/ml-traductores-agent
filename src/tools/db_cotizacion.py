@@ -12,7 +12,7 @@ from langgraph.prebuilt import InjectedState
 from sqlalchemy import select
 
 from src.db.engine import async_session_factory
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import flag_modified, selectinload
 
 from src.db.models import Cotizacion, LineaCotizacion, Mensaje, MensajeInterno, SolicitudAgente
 
@@ -162,6 +162,58 @@ async def enviar_cotizacion(
         contacto_id = state.get("contacto_id") if state else None
         nombre = state.get("nombre", "") if state else ""
         empresa = state.get("empresa", "") if state else ""
+
+        # Construir resumen de líneas ANTES de abrir session 2
+        # (cot está en memoria con selectinload, no necesita sesión activa)
+        _lineas_texto = []
+        for _linea in cot.lineas:
+            _nombre_item = (
+                _linea.servicio.nombre if _linea.servicio
+                else _linea.descripcion_generada or "Ítem"
+            )
+            _idioma = f" ({_linea.servicio.idioma_destino})" if _linea.servicio and _linea.servicio.idioma_destino else ""
+            _detalles = []
+            if _linea.fecha_servicio_inicio:
+                _fecha_str = _linea.fecha_servicio_inicio.strftime("%d/%m/%Y")
+                if _linea.fecha_servicio_fin and _linea.fecha_servicio_fin != _linea.fecha_servicio_inicio:
+                    _fecha_str += f" – {_linea.fecha_servicio_fin.strftime('%d/%m/%Y')}"
+                _detalles.append(_fecha_str)
+            if _linea.horario:
+                _detalles.append(_linea.horario)
+            if _linea.cantidad is not None:
+                _detalles.append(f"{float(_linea.cantidad):g}h")
+            if _linea.num_interpretes and _linea.num_interpretes > 1:
+                _detalles.append(f"{_linea.num_interpretes} intérpretes")
+            if _linea.num_equipos:
+                _detalles.append(f"{_linea.num_equipos} equipos")
+            _precio_fmt = f"${_linea.precio_total:,.0f}".replace(",", ".")
+            _detalle_str = f" — {' · '.join(_detalles)}" if _detalles else ""
+            _lineas_texto.append(f"  • {_nombre_item}{_idioma}{_detalle_str} → {_precio_fmt}")
+
+        _resumen_lineas = "\n".join(_lineas_texto) if _lineas_texto else "  (sin líneas)"
+
+        _cliente_label_pre = (
+            (cot.cliente.nombre_empresa if cot.cliente else None)
+            or (cot.contacto.nombre_completo if cot.contacto else None)
+            or f"cliente {cliente_id}"
+        )
+        _subtotal_fmt = f"${cot.subtotal:,.0f}".replace(",", ".") if cot.subtotal else "—"
+        _iva_fmt = f"${cot.iva:,.0f}".replace(",", ".") if cot.iva else "—"
+        _total_fmt = f"${cot.total:,.0f}".replace(",", ".") if cot.total else "—"
+        _iva_linea = f"  IVA (19%):    {_iva_fmt}\n" if not cot.exento_iva else "  (Exento de IVA)\n"
+        _ubicacion_linea = f"📍 {cot.ubicacion_evento}\n" if cot.ubicacion_evento else ""
+
+        _contenido_mensaje = (
+            f"Acabo de enviar la cotización {numero} a {_cliente_label_pre}.\n\n"
+            f"{_ubicacion_linea}"
+            f"📋 Servicios cotizados:\n{_resumen_lineas}\n\n"
+            f"💰 Resumen de valor:\n"
+            f"  Subtotal:     {_subtotal_fmt}\n"
+            f"{_iva_linea}"
+            f"  Total:        {_total_fmt}\n\n"
+            f"Revisa precios y condiciones. Puedes aprobar, ajustar el pricing o rechazar."
+        )
+
         async with async_session_factory() as db:
             db_cot = await db.get(Cotizacion, cotizacion_id)
             if db_cot:
@@ -224,6 +276,7 @@ async def enviar_cotizacion(
                 existing.cotizacion_id = cotizacion_id
                 existing.estado = "pendiente"
                 existing.datos_formulario = datos
+                flag_modified(existing, "datos_formulario")
                 existing.titulo = f"Cotizaciones de {cliente_label}"
                 solicitud = existing
                 await db.flush()
@@ -245,59 +298,17 @@ async def enviar_cotizacion(
                 db.add(solicitud)
                 await db.flush()  # obtener solicitud.id antes del commit
 
-            # Construir resumen de líneas de cotización
-            lineas_texto = []
-            for linea in cot.lineas:
-                nombre_item = (
-                    linea.servicio.nombre if linea.servicio
-                    else linea.descripcion_generada or "Ítem"
-                )
-                idioma = f" ({linea.servicio.idioma_destino})" if linea.servicio and linea.servicio.idioma_destino else ""
-                detalles = []
-                if linea.fecha_servicio_inicio:
-                    fecha_str = linea.fecha_servicio_inicio.strftime("%d/%m/%Y")
-                    if linea.fecha_servicio_fin and linea.fecha_servicio_fin != linea.fecha_servicio_inicio:
-                        fecha_str += f" – {linea.fecha_servicio_fin.strftime('%d/%m/%Y')}"
-                    detalles.append(fecha_str)
-                if linea.horario:
-                    detalles.append(linea.horario)
-                if linea.cantidad is not None:
-                    detalles.append(f"{linea.cantidad:g}h")
-                if linea.num_interpretes and linea.num_interpretes > 1:
-                    detalles.append(f"{linea.num_interpretes} intérpretes")
-                if linea.num_equipos:
-                    detalles.append(f"{linea.num_equipos} equipos")
-                precio_fmt = f"${linea.precio_total:,.0f}".replace(",", ".")
-                detalle_str = f" — {' · '.join(detalles)}" if detalles else ""
-                lineas_texto.append(f"  • {nombre_item}{idioma}{detalle_str} → {precio_fmt}")
+            # Mensaje inicial del agente en el chat interno (pre-construido antes de esta sesión)
+            try:
+                db.add(MensajeInterno(
+                    solicitud_id=solicitud.id,
+                    origen="agente",
+                    contenido=_contenido_mensaje,
+                    tipo_contenido="texto",
+                ))
+            except Exception as e_msg:
+                logger.error(f"Error creando MensajeInterno para solicitud {solicitud.id}: {e_msg}", exc_info=True)
 
-            resumen_lineas = "\n".join(lineas_texto) if lineas_texto else "  (sin líneas)"
-
-            # Totales
-            subtotal_fmt = f"${cot.subtotal:,.0f}".replace(",", ".") if cot.subtotal else "—"
-            iva_fmt = f"${cot.iva:,.0f}".replace(",", ".") if cot.iva else "—"
-            total_fmt = f"${cot.total:,.0f}".replace(",", ".") if cot.total else "—"
-            iva_linea = f"  IVA (19%):    {iva_fmt}\n" if not cot.exento_iva else "  (Exento de IVA)\n"
-            ubicacion_linea = f"📍 {cot.ubicacion_evento}\n" if cot.ubicacion_evento else ""
-
-            contenido_mensaje = (
-                f"Acabo de enviar la cotización {numero} a {cliente_label}.\n\n"
-                f"{ubicacion_linea}"
-                f"📋 Servicios cotizados:\n{resumen_lineas}\n\n"
-                f"💰 Resumen de valor:\n"
-                f"  Subtotal:     {subtotal_fmt}\n"
-                f"{iva_linea}"
-                f"  Total:        {total_fmt}\n\n"
-                f"Revisa precios y condiciones. Puedes aprobar, ajustar el pricing o rechazar."
-            )
-
-            # Mensaje inicial del agente en el chat interno
-            db.add(MensajeInterno(
-                solicitud_id=solicitud.id,
-                origen="agente",
-                contenido=contenido_mensaje,
-                tipo_contenido="texto",
-            ))
             await db.commit()
             await db.refresh(solicitud)
 

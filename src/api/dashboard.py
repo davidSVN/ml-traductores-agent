@@ -835,6 +835,12 @@ async def resolver_solicitud(
     if not s:
         raise HTTPException(status_code=404, detail="Solicitud no encontrada")
 
+    if s.estado in ("aprobada", "rechazada", "modificada"):
+        raise HTTPException(
+            status_code=409,
+            detail=f"Solicitud ya fue resuelta ({s.estado}). No se puede cambiar."
+        )
+
     estado_map = {"aprobar": "aprobada", "rechazar": "rechazada", "modificar": "modificada"}
     s.estado = estado_map.get(body.accion, body.accion)
     s.respuesta_encargada = body.respuesta
@@ -873,6 +879,10 @@ async def resolver_solicitud(
     # Ejecutar acción de aprobación en background (WhatsApp + PDF si aplica)
     phone = (s.datos_formulario or {}).get("phone", "")
     cot_id = s.cotizacion_id
+    if not phone:
+        logger.warning(f"resolver_solicitud sol={solicitud_id}: sin phone en datos_formulario, no se enviará WhatsApp")
+    if not cot_id:
+        logger.warning(f"resolver_solicitud sol={solicitud_id}: sin cotizacion_id, no se ejecutará acción")
     if phone and cot_id:
         datos = s.datos_formulario or {}
         cliente_label = datos.get("empresa") or datos.get("nombre") or "cliente"

@@ -47,6 +47,18 @@ async def handle_aprobacion(
 
     async with async_session_factory() as db:
         cot = await db.get(Cotizacion, cotizacion_id)
+        if cot and cot.estado == "aprobada":
+            # Ya aprobada (ej. cliente aprobó por WhatsApp) — no reenviar
+            logger.info(f"handle_aprobacion: cot {cotizacion_id} ya estaba aprobada, omitiendo WhatsApp duplicado")
+            db.add(MensajeInterno(
+                solicitud_id=solicitud_id,
+                origen="agente",
+                contenido="ℹ️ Cotización ya estaba aprobada por el cliente. No se reenvió WhatsApp.",
+                tipo_contenido="accion",
+            ))
+            await db.commit()
+            return
+
         if cot:
             cot.estado = "aprobada"
 
