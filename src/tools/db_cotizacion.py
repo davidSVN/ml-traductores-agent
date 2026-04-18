@@ -273,7 +273,9 @@ async def enviar_cotizacion(
             )
             existing = existing_result.scalar_one_or_none()
 
+            es_actualizacion = existing is not None
             if existing:
+                cotizacion_anterior_id = existing.cotizacion_id
                 existing.cotizacion_id = cotizacion_id
                 existing.estado = "pendiente"
                 existing.datos_formulario = datos
@@ -281,6 +283,13 @@ async def enviar_cotizacion(
                 existing.titulo = f"Cotizaciones de {cliente_label}"
                 solicitud = existing
                 await db.flush()
+
+                # Marcar la cotización anterior como reemplazada
+                if cotizacion_anterior_id and cotizacion_anterior_id != cotizacion_id:
+                    cot_anterior = await db.get(Cotizacion, cotizacion_anterior_id)
+                    if cot_anterior and cot_anterior.estado not in ("aprobada",):
+                        cot_anterior.estado = "negociando"
+                        logger.info(f"Cotización anterior {cotizacion_anterior_id} marcada como negociando (reemplazada por {cotizacion_id})")
             else:
                 solicitud = SolicitudAgente(
                     cliente_id=cliente_id,
@@ -300,11 +309,12 @@ async def enviar_cotizacion(
                 await db.flush()  # obtener solicitud.id antes del commit
 
             # Mensaje inicial del agente en el chat interno (pre-construido antes de esta sesión)
+            prefijo = "🔄 *Cotización actualizada* — el cliente solicitó cambios.\n\n" if es_actualizacion else ""
             try:
                 db.add(MensajeInterno(
                     solicitud_id=solicitud.id,
                     origen="agente",
-                    contenido=_contenido_mensaje,
+                    contenido=prefijo + _contenido_mensaje,
                     tipo_contenido="texto",
                 ))
             except Exception as e_msg:

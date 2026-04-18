@@ -30,7 +30,7 @@ IVA_RATE = Decimal("0.19")
 # Mapeo tipo_servicio → fragmentos ILIKE para buscar en Servicio.nombre
 TIPO_SERVICIO_ILIKE: dict[str, list[str]] = {
     "interpretacion_simultanea_presencial": ["%simult%presencial%", "%presencial%simult%"],
-    "interpretacion_simultanea_virtual": ["%simult%virtual%", "%simult%remot%", "%remot%simult%"],
+    "interpretacion_simultanea_virtual": ["%simult%virtual%", "%simult%remot%", "%remot%simult%", "%remota%"],
     "interpretacion_consecutiva": ["%consecutiva%"],
     "traduccion_documentos": ["%traducci%document%", "%document%traducci%"],
     "transcripcion": ["%transcripci%"],

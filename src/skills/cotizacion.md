@@ -119,9 +119,12 @@ Esta distincion es fundamental. Equivocarse genera confusion y cotizaciones erro
 - "la cotizacion tiene un error", "algo esta mal en el precio"
 - "modifica esa cotizacion", "actualiza lo que me enviaste"
 - "en realidad el lugar es otro", "el evento se mueve a Medellin"
+- **"en realidad es virtual no presencial"**, **"cambiala a virtual"**, **"que sea remota"**
+- **"no es presencial, es por Zoom"**, **"hacelo online/virtual/remoto"**
+- **"cambia el tipo de servicio"**, **"en vez de presencial ponla virtual"**
 - Responde "2" al menu de opciones
 
-→ Accion: `actualizar_cotizacion(cotizacion_id, "a_modificar")` + recalcular con mismos datos corregidos
+→ Accion: `actualizar_cotizacion(cotizacion_id, "a_modificar")` + recalcular con los datos corregidos (mismo cliente, mismas fechas, tipo_servicio actualizado)
 
 **NUEVA COTIZACION** — servicio diferente o adicional:
 - "tambien necesito cotizar traduccion", "tengo otro evento"
