@@ -63,7 +63,9 @@
       "Skill(update-config)",
       "Skill(update-config:*)",
       "Bash(npx wrangler:*)",
-      "Bash(python -c ':*)"
+      "Bash(python -c ':*)",
+      "Bash(.venvScriptspython.exe -c ' *)",
+      "Bash(.venv/Scripts/python.exe -c ' *)"
     ]
   }
 }
