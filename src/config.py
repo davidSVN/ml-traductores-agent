@@ -44,9 +44,9 @@ class Settings(BaseSettings):
     aws_s3_bucket: str = "ml-traductores-cotizaciones"
     aws_region: str = "us-east-1"
 
-    # Gmail SMTP
-    gmail_user: str = ""           # cuenta@gmail.com
-    gmail_app_password: str = ""   # App Password de 16 caracteres
+    # Email via Resend (reemplaza Gmail SMTP — Railway bloquea puertos SMTP)
+    resend_api_key: str = ""       # API key de resend.com
+    email_from: str = "ML Traductores <cotizaciones@ai-washflow.com>"  # remitente verificado en Resend
 
     # Cron secret (Railway cron job header validation)
     cron_secret: str = "cron-secret-change-me"

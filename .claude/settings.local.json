@@ -74,7 +74,9 @@
       "Bash(.venv/Scripts/alembic revision *)",
       "Bash(DB_HOST=ml-traductores-db.crawq8kai1gr.us-east-2.rds.amazonaws.com DB_PORT=5432 DB_NAME=ml_traductores DB_USER=admin_ml DB_PASSWORD=MlTrad2026db .venv/Scripts/alembic upgrade head)",
       "Bash(DB_HOST=ml-traductores-db.crawq8kai1gr.us-east-2.rds.amazonaws.com DB_PORT=5432 DB_NAME=ml_traductores DB_USER=admin_ml DB_PASSWORD=MlTrad2026db .venv/Scripts/alembic stamp 95c3bb1ecdcc)",
-      "Bash(.venv/Scripts/python -c ' *)"
+      "Bash(.venv/Scripts/python -c ' *)",
+      "Bash(ls .wrangler/)",
+      "Bash(cat wrangler.toml)"
     ]
   }
 }

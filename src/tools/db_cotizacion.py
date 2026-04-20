@@ -358,32 +358,22 @@ async def enviar_cotizacion_email(
     numero_cotizacion: str,
 ) -> str:
     """
-    [STUB — integración email pendiente]
-    Registra la intención de enviar el PDF de cotización por correo electrónico.
-    La integración real (SendGrid / AWS SES) se conectará aquí en una fase futura.
+    Envía el PDF de cotización por correo usando Resend (HTTP API — HTTPS puerto 443).
+    Railway bloquea SMTP (587/465/25) — Resend resuelve esto via API REST.
 
     Llamar SOLO desde handle_aprobacion cuando María Luisa aprueba.
     No llamar desde el agente directamente.
-
-    cotizacion_id: ID de la cotización aprobada.
-    email: correo del destinatario.
-    nombre_destinatario: nombre completo a quien va dirigida.
-    numero_cotizacion: número de la cotización (ej: COT-20260419-001).
     """
-    import aiosmtplib
     import httpx
-    from email import encoders
-    from email.mime.base import MIMEBase
-    from email.mime.multipart import MIMEMultipart
-    from email.mime.text import MIMEText
+    import resend
 
     from src.config import get_settings
 
     settings = get_settings()
 
-    if not settings.gmail_user or not settings.gmail_app_password:
-        logger.error("enviar_cotizacion_email: GMAIL_USER o GMAIL_APP_PASSWORD no configurados")
-        return json.dumps({"enviado": False, "error": "Credenciales Gmail no configuradas"}, ensure_ascii=False)
+    if not settings.resend_api_key:
+        logger.error("enviar_cotizacion_email: RESEND_API_KEY no configurada")
+        return json.dumps({"enviado": False, "error": "RESEND_API_KEY no configurada"}, ensure_ascii=False)
 
     # 1. Obtener url_pdf desde SolicitudAgente.datos_formulario
     async with async_session_factory() as db:
@@ -401,43 +391,39 @@ async def enviar_cotizacion_email(
         logger.error(f"enviar_cotizacion_email: sin url_pdf para cot {cotizacion_id}")
         return json.dumps({"enviado": False, "error": "No se encontró el PDF en S3"}, ensure_ascii=False)
 
-    # 2. Descargar PDF desde S3
+    # 2. Descargar PDF desde S3 (presigned URL)
     async with httpx.AsyncClient(timeout=30) as client:
         r = await client.get(url_pdf)
         r.raise_for_status()
         pdf_bytes = r.content
 
-    # 3. Construir email MIME
-    msg = MIMEMultipart()
-    msg["From"] = f"ML Traductores <{settings.gmail_user}>"
-    msg["To"] = f"{nombre_destinatario} <{email}>"
-    msg["Subject"] = f"Cotización {numero_cotizacion} — ML Traductores"
+    # 3. Enviar vía Resend (HTTPS — sin SMTP)
+    resend.api_key = settings.resend_api_key
 
-    cuerpo = (
-        f"Estimado/a {nombre_destinatario},\n\n"
-        f"Adjunto encontrará la cotización formal {numero_cotizacion} de ML Traductores.\n\n"
-        f"Quedamos atentos a sus comentarios y próximos pasos.\n\n"
-        f"Atentamente,\nML Traductores"
-    )
-    msg.attach(MIMEText(cuerpo, "plain", "utf-8"))
-
-    part = MIMEBase("application", "octet-stream")
-    part.set_payload(pdf_bytes)
-    encoders.encode_base64(part)
-    part.add_header("Content-Disposition", f'attachment; filename="{numero_cotizacion}.pdf"')
-    msg.attach(part)
-
-    # 4. Enviar por SMTP Gmail (STARTTLS port 587)
-    await aiosmtplib.send(
-        msg,
-        hostname="smtp.gmail.com",
-        port=587,
-        username=settings.gmail_user,
-        password=settings.gmail_app_password,
-        start_tls=True,
+    cuerpo_html = (
+        f"<p>Estimado/a <strong>{nombre_destinatario}</strong>,</p>"
+        f"<p>Adjunto encontrará la cotización formal <strong>{numero_cotizacion}</strong> "
+        f"de ML Traductores.</p>"
+        f"<p>Quedamos atentos a sus comentarios y próximos pasos.</p>"
+        f"<br><p>Atentamente,<br><strong>ML Traductores</strong></p>"
     )
 
-    logger.info(f"Email enviado: {numero_cotizacion} → {email}")
+    params: resend.Emails.SendParams = {
+        "from": settings.email_from,
+        "to": [email],
+        "subject": f"Cotización {numero_cotizacion} — ML Traductores",
+        "html": cuerpo_html,
+        "attachments": [
+            {
+                "filename": f"{numero_cotizacion}.pdf",
+                "content": list(pdf_bytes),
+            }
+        ],
+    }
+
+    resend.Emails.send(params)
+
+    logger.info(f"Email enviado via Resend: {numero_cotizacion} → {email}")
     return json.dumps({
         "enviado": True,
         "email": email,
