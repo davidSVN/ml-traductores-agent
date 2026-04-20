@@ -44,6 +44,10 @@ class Settings(BaseSettings):
     aws_s3_bucket: str = "ml-traductores-cotizaciones"
     aws_region: str = "us-east-1"
 
+    # Gmail SMTP
+    gmail_user: str = ""           # cuenta@gmail.com
+    gmail_app_password: str = ""   # App Password de 16 caracteres
+
     # Cron secret (Railway cron job header validation)
     cron_secret: str = "cron-secret-change-me"
 

@@ -370,16 +370,79 @@ async def enviar_cotizacion_email(
     nombre_destinatario: nombre completo a quien va dirigida.
     numero_cotizacion: número de la cotización (ej: COT-20260419-001).
     """
-    logger.info(
-        f"[EMAIL STUB] Cotización {numero_cotizacion} → {email} "
-        f"para {nombre_destinatario} (cot_id={cotizacion_id})"
+    import aiosmtplib
+    import httpx
+    from email import encoders
+    from email.mime.base import MIMEBase
+    from email.mime.multipart import MIMEMultipart
+    from email.mime.text import MIMEText
+
+    from src.config import get_settings
+
+    settings = get_settings()
+
+    if not settings.gmail_user or not settings.gmail_app_password:
+        logger.error("enviar_cotizacion_email: GMAIL_USER o GMAIL_APP_PASSWORD no configurados")
+        return json.dumps({"enviado": False, "error": "Credenciales Gmail no configuradas"}, ensure_ascii=False)
+
+    # 1. Obtener url_pdf desde SolicitudAgente.datos_formulario
+    async with async_session_factory() as db:
+        result = await db.execute(
+            select(SolicitudAgente)
+            .where(SolicitudAgente.cotizacion_id == cotizacion_id)
+            .where(SolicitudAgente.tipo == "aprobar_cotizacion")
+            .order_by(SolicitudAgente.created_at.desc())
+            .limit(1)
+        )
+        sol = result.scalar_one_or_none()
+
+    url_pdf = (sol.datos_formulario or {}).get("url_pdf") if sol else None
+    if not url_pdf:
+        logger.error(f"enviar_cotizacion_email: sin url_pdf para cot {cotizacion_id}")
+        return json.dumps({"enviado": False, "error": "No se encontró el PDF en S3"}, ensure_ascii=False)
+
+    # 2. Descargar PDF desde S3
+    async with httpx.AsyncClient(timeout=30) as client:
+        r = await client.get(url_pdf)
+        r.raise_for_status()
+        pdf_bytes = r.content
+
+    # 3. Construir email MIME
+    msg = MIMEMultipart()
+    msg["From"] = f"ML Traductores <{settings.gmail_user}>"
+    msg["To"] = f"{nombre_destinatario} <{email}>"
+    msg["Subject"] = f"Cotización {numero_cotizacion} — ML Traductores"
+
+    cuerpo = (
+        f"Estimado/a {nombre_destinatario},\n\n"
+        f"Adjunto encontrará la cotización formal {numero_cotizacion} de ML Traductores.\n\n"
+        f"Quedamos atentos a sus comentarios y próximos pasos.\n\n"
+        f"Atentamente,\nML Traductores"
     )
+    msg.attach(MIMEText(cuerpo, "plain", "utf-8"))
+
+    part = MIMEBase("application", "octet-stream")
+    part.set_payload(pdf_bytes)
+    encoders.encode_base64(part)
+    part.add_header("Content-Disposition", f'attachment; filename="{numero_cotizacion}.pdf"')
+    msg.attach(part)
+
+    # 4. Enviar por SMTP Gmail (STARTTLS port 587)
+    await aiosmtplib.send(
+        msg,
+        hostname="smtp.gmail.com",
+        port=587,
+        username=settings.gmail_user,
+        password=settings.gmail_app_password,
+        start_tls=True,
+    )
+
+    logger.info(f"Email enviado: {numero_cotizacion} → {email}")
     return json.dumps({
         "enviado": True,
         "email": email,
         "destinatario": nombre_destinatario,
         "numero_cotizacion": numero_cotizacion,
-        "nota": "Integración email pendiente — stub registrado",
     }, ensure_ascii=False)
 
 

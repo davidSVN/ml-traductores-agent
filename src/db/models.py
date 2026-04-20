@@ -46,6 +46,9 @@ class Cliente(Base):
     descuento_max_porcentaje: Mapped[Optional[decimal.Decimal]] = mapped_column(Numeric(5, 2), default=0)
     markup_personalizado: Mapped[Optional[decimal.Decimal]] = mapped_column(Numeric(5, 2), nullable=True)
     notas_pricing: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    tiene_rut: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, server_default="false")
+    numero_rut: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    correo_facturacion: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     created_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime(timezone=False), server_default=func.now())
     updated_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime(timezone=False), server_default=func.now(), onupdate=func.now())
 

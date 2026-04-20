@@ -255,6 +255,9 @@ async def actualizar_cliente(
     direccion: str = "",
     sector: str = "",
     exento_iva: bool | None = None,
+    tiene_rut: bool | None = None,
+    numero_rut: str = "",
+    correo_facturacion: str = "",
     state: Annotated[dict, InjectedState] = None,
 ) -> str:
     """
@@ -267,6 +270,9 @@ async def actualizar_cliente(
     direccion: Dirección física de la empresa.
     sector: Sector económico (ej: "Salud", "Educación", "Gobierno", "Logística").
     exento_iva: True si es entidad exenta de IVA.
+    tiene_rut: True si la empresa ya envió o tiene RUT registrado.
+    numero_rut: Número del RUT de la empresa.
+    correo_facturacion: Correo electrónico para generar factura electrónica.
     """
     cliente_id = (state or {}).get("cliente_id")
     if not cliente_id:
@@ -286,6 +292,12 @@ async def actualizar_cliente(
             cliente.sector = sector
         if exento_iva is not None:
             cliente.exento_iva = exento_iva
+        if tiene_rut is not None:
+            cliente.tiene_rut = tiene_rut
+        if numero_rut:
+            cliente.numero_rut = numero_rut
+        if correo_facturacion:
+            cliente.correo_facturacion = correo_facturacion
         await db.commit()
 
     logger.info(f"Cliente actualizado: id={cliente_id}")

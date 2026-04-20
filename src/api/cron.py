@@ -41,21 +41,22 @@ DIAS_VENCIMIENTO = 8
 MENSAJES_SEGUIMIENTO = [
     # Seguimiento 1 — día 1
     (
-        "Hola {nombre}, le escribimos de *ML Traductores* para saber si tuvo la oportunidad "
-        "de revisar la cotización *{numero}* por *${total}*. "
-        "¿Tiene alguna pregunta o podemos confirmar el servicio?"
+        "Hola {nombre}, le escribimos de *ML Traductores*. "
+        "¿Recibió la cotización *{numero}* que le enviamos al correo? "
+        "Si tiene alguna pregunta o desea confirmar el servicio, con gusto le atendemos."
     ),
     # Seguimiento 2 — día 3
     (
         "Hola {nombre}, seguimos a su disposición en *ML Traductores*. "
-        "La cotización *{numero}* por *${total}* sigue disponible. "
-        "¿Podemos ayudarle a tomar una decisión o hacer algún ajuste?"
+        "¿Pudo revisar la cotización *{numero}* por *${total}*? "
+        "Si no la encontró en su bandeja de entrada, con gusto la reenviamos. "
+        "¿Podemos confirmar el servicio?"
     ),
     # Seguimiento 3 — día 7
     (
-        "Hola {nombre}, le recordamos que la cotización *{numero}* por *${total}* "
-        "vence en los próximos días. Si desea confirmar el servicio o necesita alguna "
-        "modificación, con gusto le atendemos antes de que expire. — *ML Traductores*"
+        "Hola {nombre}, la cotización *{numero}* por *${total}* está próxima a vencer. "
+        "Si desea confirmar el servicio o necesita algún ajuste, "
+        "estamos disponibles para atenderle. — *ML Traductores*"
     ),
 ]
 
