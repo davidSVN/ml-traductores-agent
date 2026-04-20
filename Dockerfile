@@ -9,4 +9,4 @@ RUN pip install --no-cache-dir .
 
 COPY . .
 
-CMD uvicorn src.main:app --host 0.0.0.0 --port ${PORT:-8000}
+CMD alembic upgrade head && uvicorn src.main:app --host 0.0.0.0 --port ${PORT:-8000}

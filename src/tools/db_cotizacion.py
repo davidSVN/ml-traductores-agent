@@ -486,6 +486,7 @@ async def actualizar_cotizacion(
     cotizacion_id: int,
     estado: str,
     motivo: str = "",
+    numero_orden_compra: str = "",
 ) -> str:
     """
     Actualiza el estado de una cotizacion segun la decision del cliente.
@@ -494,6 +495,7 @@ async def actualizar_cotizacion(
     cotizacion_id: ID de la cotizacion (el mismo retornado por calcular_cotizacion).
     estado: Decision del cliente — uno de: "aprobada", "rechazada", "a_modificar".
     motivo: Razon opcional (requerida si es rechazada para registrar feedback).
+    numero_orden_compra: Número de orden de compra interna del cliente (opcional, solo al aprobar).
     """
     # Mapeo LLM → valores reales del constraint estado_valido en DB
     # borrador | enviada | en_seguimiento | negociando | aprobada | perdida | vencida
@@ -523,6 +525,8 @@ async def actualizar_cotizacion(
         cot.fecha_respuesta = datetime.date.today()
         if estado == "rechazada" and motivo:
             cot.razon_perdida = motivo
+        if numero_orden_compra:
+            cot.numero_orden_compra = numero_orden_compra
         await db.commit()
 
     logger.info(f"Cotizacion {cotizacion_id} actualizada a estado={estado!r}")

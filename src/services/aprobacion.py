@@ -151,7 +151,20 @@ async def handle_modificacion(
                 cot.iva = Decimal("0")
                 cot.total = nuevo_subtotal
 
-        numero = cot.numero_cotizacion
+        # Versionar número: COT-001 → COT-001A → COT-001B → ...
+        numero_base = cot.numero_cotizacion
+        if numero_base and numero_base[-1].isalpha():
+            # Ya tiene versión: COT-001A → COT-001B
+            base = numero_base[:-1]
+            siguiente_letra = chr(ord(numero_base[-1]) + 1)
+        else:
+            # Primera modificación: COT-001 → COT-001A
+            base = numero_base
+            siguiente_letra = "A"
+        numero = f"{base}{siguiente_letra}"
+        cot.numero_cotizacion = numero
+        cot.version = siguiente_letra
+
         total_fmt = f"${cot.total:,.0f}".replace(",", ".")
         await db.commit()
 

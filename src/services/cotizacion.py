@@ -452,11 +452,8 @@ def _detectar_fuera_de_bogota(ubicacion: str) -> bool:
 
 
 async def _generar_numero_cotizacion(db) -> str:
-    hoy = date.today()
-    result = await db.execute(
-        select(func.count(Cotizacion.id)).where(
-            cast(Cotizacion.created_at, Date) == hoy
-        )
-    )
+    """Genera número secuencial global: COT-001, COT-002, ...
+    La versión (A, B, C) se agrega solo cuando María Luisa modifica desde el panel."""
+    result = await db.execute(select(func.count(Cotizacion.id)))
     count = result.scalar() or 0
-    return f"COT-{hoy.strftime('%Y%m%d')}-{count + 1:03d}"
+    return f"COT-{count + 1:03d}"

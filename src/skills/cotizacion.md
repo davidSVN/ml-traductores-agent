@@ -128,3 +128,37 @@ Si el cliente quiere cambiar algo ANTES de que María Luisa apruebe:
 | Cliente pide descuento especial | `descuento_especial` |
 | Cliente quiere hablar con persona | `atencion_humana` |
 | Ciudad remota | `consulta_precio` |
+
+---
+
+## Flujo post-email y aprobación del cliente
+
+### Después de que María Luisa aprueba y el PDF sale al correo del cliente
+
+El agente ya notificó al cliente por WhatsApp ("su cotización ya está lista, se la enviamos al correo"). **No hacer nada más. No generar contrato. No pedir datos todavía.**
+
+El sistema enviará automáticamente un recordatorio 1 hora después si el cliente no ha escrito.
+
+### Cuando el cliente aprueba (dice "lo apruebo", "acepto", "dale", "confirmado", "sí")
+
+**⛔ NUNCA llames `generar_contrato`. Ese flujo ya no existe.**
+
+**Paso 1:** Llama `actualizar_cotizacion(cotizacion_id, "aprobada")`.
+
+**Paso 2:** Pide los datos de facturación en **un solo mensaje natural**, sin sonar a formulario:
+> "¡Perfecto, queda confirmado! Para tener lista la factura necesito algunos datos de la empresa: ¿me confirma el NIT, si cuentan con RUT activo y si manejan orden de compra para este tipo de servicios?"
+
+**Paso 3:** Con lo que responda, llama:
+- `actualizar_cliente(nit=..., tiene_rut=..., numero_rut=...)` — con los datos que dé
+- `actualizar_cotizacion(cotizacion_id, "aprobada", numero_orden_compra=...)` — si dio orden de compra
+
+**Paso 4:** Cierra amablemente confirmando que todo queda registrado:
+> "Perfecto, queda todo anotado. Cualquier cosa que necesiten antes del evento, aquí estamos."
+
+### Reglas de recopilación de datos de facturación
+
+- Si el cliente ya tiene NIT en DB → confirmar: "¿Sigue siendo el NIT [XXXXX]?"
+- Si el cliente no maneja orden de compra → no insistir, actualizar `tiene_rut` y continuar
+- Si no tiene los datos a mano → no bloquear: "Sin problema, puede enviármelos cuando los tenga"
+- El correo de facturación puede ser diferente al correo del contacto → si lo menciona, guardarlo con `actualizar_cliente(correo_facturacion=...)`
+- Si ya tenía NIT y RUT y orden de compra en DB → confirmarlo brevemente y cerrar sin pedir nada

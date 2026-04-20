@@ -9,6 +9,7 @@ import {
   List,
   Bell,
   Settings,
+  CalendarCheck,
 } from "lucide-react";
 import { useStats } from "@/lib/hooks/useStats";
 import { cn } from "@/lib/utils";
@@ -24,6 +25,7 @@ const NAV_ITEMS = [
     label: "Aprobaciones",
     badge: "solicitudes_pendientes" as const,
   },
+  { href: "/eventos-confirmados", icon: CalendarCheck, label: "Eventos confirmados" },
   { href: "/configuracion", icon: Settings, label: "Configuración" },
 ];
 

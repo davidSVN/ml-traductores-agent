@@ -1079,3 +1079,106 @@ async def modificar_lineas_cotizacion(
         ))
 
     return _build_solicitud_detalle(s)
+
+
+# ─────────────────────────────────────────
+# EVENTOS CONFIRMADOS
+# ─────────────────────────────────────────
+
+class DatosFaltantesOut(BaseModel):
+    nit: bool
+    rut: bool
+    orden_compra: bool
+
+
+class EventoConfirmadoOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    cotizacion_id: int
+    numero_cotizacion: str
+    cliente: str
+    contacto: Optional[str]
+    telefono: Optional[str]
+    email: Optional[str]
+    servicio: str
+    idioma: Optional[str]
+    fecha_evento: Optional[str]
+    fecha_fin_evento: Optional[str]
+    ubicacion: Optional[str]
+    total: Optional[float]
+    exento_iva: Optional[bool]
+    nit: Optional[str]
+    tiene_rut: Optional[bool]
+    numero_rut: Optional[str]
+    numero_orden_compra: Optional[str]
+    correo_facturacion: Optional[str]
+    datos_faltantes: DatosFaltantesOut
+
+
+@router.get("/eventos-confirmados", response_model=list[EventoConfirmadoOut])
+async def get_eventos_confirmados(db: AsyncSession = Depends(get_db)):
+    """
+    Retorna todas las cotizaciones aprobadas con detalle del evento y estado de facturación.
+    """
+    result = await db.execute(
+        select(Cotizacion)
+        .options(
+            selectinload(Cotizacion.cliente),
+            selectinload(Cotizacion.contacto),
+            selectinload(Cotizacion.lineas).selectinload(LineaCotizacion.servicio),
+        )
+        .where(Cotizacion.estado == "aprobada")
+        .order_by(Cotizacion.updated_at.desc())
+    )
+    cotizaciones = result.scalars().all()
+
+    eventos = []
+    for cot in cotizaciones:
+        cliente = cot.cliente
+        contacto = cot.contacto
+        primera_linea = cot.lineas[0] if cot.lineas else None
+
+        servicio_nombre = "—"
+        idioma = None
+        fecha_evento = None
+        fecha_fin_evento = None
+        if primera_linea:
+            if primera_linea.servicio:
+                servicio_nombre = primera_linea.servicio.nombre
+                idioma = primera_linea.servicio.idioma_destino
+            elif primera_linea.descripcion_generada:
+                servicio_nombre = primera_linea.descripcion_generada
+            if primera_linea.fecha_servicio_inicio:
+                fecha_evento = primera_linea.fecha_servicio_inicio.strftime("%Y-%m-%d")
+            if primera_linea.fecha_servicio_fin:
+                fecha_fin_evento = primera_linea.fecha_servicio_fin.strftime("%Y-%m-%d")
+
+        datos_faltantes = DatosFaltantesOut(
+            nit=not bool(cliente.nit if cliente else None),
+            rut=not bool((cliente.tiene_rut and cliente.numero_rut) if cliente else False),
+            orden_compra=not bool(cot.numero_orden_compra),
+        )
+
+        eventos.append(EventoConfirmadoOut(
+            cotizacion_id=cot.id,
+            numero_cotizacion=cot.numero_cotizacion,
+            cliente=cliente.nombre_empresa if cliente else "—",
+            contacto=contacto.nombre_completo if contacto else None,
+            telefono=contacto.telefono if contacto else None,
+            email=contacto.email if contacto else None,
+            servicio=servicio_nombre,
+            idioma=idioma,
+            fecha_evento=fecha_evento,
+            fecha_fin_evento=fecha_fin_evento,
+            ubicacion=cot.ubicacion_evento,
+            total=float(cot.total) if cot.total else None,
+            exento_iva=cot.exento_iva,
+            nit=cliente.nit if cliente else None,
+            tiene_rut=cliente.tiene_rut if cliente else None,
+            numero_rut=cliente.numero_rut if cliente else None,
+            numero_orden_compra=cot.numero_orden_compra,
+            correo_facturacion=cliente.correo_facturacion if cliente else None,
+            datos_faltantes=datos_faltantes,
+        ))
+
+    return eventos

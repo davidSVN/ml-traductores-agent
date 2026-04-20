@@ -76,7 +76,12 @@
       "Bash(DB_HOST=ml-traductores-db.crawq8kai1gr.us-east-2.rds.amazonaws.com DB_PORT=5432 DB_NAME=ml_traductores DB_USER=admin_ml DB_PASSWORD=MlTrad2026db .venv/Scripts/alembic stamp 95c3bb1ecdcc)",
       "Bash(.venv/Scripts/python -c ' *)",
       "Bash(ls .wrangler/)",
-      "Bash(cat wrangler.toml)"
+      "Bash(cat wrangler.toml)",
+      "Bash(python -m alembic revision --autogenerate -m \"add_numero_orden_compra_to_cotizaciones\")",
+      "Bash(alembic revision *)",
+      "Bash(\"C:\\\\Users\\\\david.vasquez\\\\AppData\\\\Local\\\\Programs\\\\Python\\\\Python312\\\\python.exe\" -m alembic upgrade head)",
+      "Bash(\"C:\\\\Users\\\\david.vasquez\\\\AppData\\\\Local\\\\Programs\\\\Python\\\\Python312\\\\Scripts\\\\alembic.exe\" upgrade *)",
+      "Bash(\"/c/Users/david.vasquez/AppData/Local/Python/pythoncore-3.14-64/Scripts/alembic.exe\" upgrade *)"
     ]
   }
 }
