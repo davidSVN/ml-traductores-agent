@@ -76,6 +76,7 @@ async def calcular_borrador(
     horario: str = "",
     fecha_inicio: str = "",
     fecha_fin: str = "",
+    exento_iva_override: bool | None = None,
 ) -> dict:
     """
     Calcula el precio de la cotización y persiste el borrador en DB.
@@ -251,7 +252,8 @@ async def calcular_borrador(
 
         # 8. Totales
         subtotal = sum(l["precio_total"] for l in lineas_data) + monto_recargo
-        iva = Decimal("0") if cliente.exento_iva else subtotal * IVA_RATE
+        exento_iva_efectivo = exento_iva_override if exento_iva_override is not None else (cliente.exento_iva or False)
+        iva = Decimal("0") if exento_iva_efectivo else subtotal * IVA_RATE
         total = subtotal + iva
 
         # 9. Número de cotización
@@ -272,7 +274,7 @@ async def calcular_borrador(
             subtotal=subtotal,
             iva=iva,
             total=total,
-            exento_iva=cliente.exento_iva,
+            exento_iva=exento_iva_efectivo,
             validez_oferta=VALIDEZ_OFERTA,
             forma_pago=FORMA_PAGO,
             estado="borrador",

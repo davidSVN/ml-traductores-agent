@@ -32,28 +32,26 @@ async def handle_aprobacion(
     respuesta: str | None = None,
 ) -> None:
     """
-    Marca cotización como aprobada y envía WhatsApp de confirmación al cliente.
+    Marca cotización como aprobada, envía PDF por email (stub) y notifica al cliente por WhatsApp.
     """
+    from src.tools.db_cotizacion import enviar_cotizacion_email
     from src.whatsapp.client import WhatsAppClient
 
-    total_fmt = f"${total:,.0f}".replace(",", ".")
-    texto_wa = (
-        f"Hola {cliente_nombre}, confirmamos que la cotización *{numero_cotizacion}* "
-        f"por *{total_fmt}* ha sido aprobada. ✅\n\n"
-        f"Nos comunicaremos pronto para coordinar el contrato y los siguientes pasos."
-    )
-    if respuesta:
-        texto_wa += f"\n\n_{respuesta}_"
+    # Leer email y nombre del destinatario desde datos_formulario
+    async with async_session_factory() as db:
+        sol = await db.get(SolicitudAgente, solicitud_id)
+        datos = sol.datos_formulario if sol else {}
+    email_dest = datos.get("email_destinatario") or datos.get("email", "")
+    nombre_dest = datos.get("nombre_destinatario") or datos.get("nombre", cliente_nombre)
 
     async with async_session_factory() as db:
         cot = await db.get(Cotizacion, cotizacion_id)
         if cot and cot.estado == "aprobada":
-            # Ya aprobada (ej. cliente aprobó por WhatsApp) — no reenviar
-            logger.info(f"handle_aprobacion: cot {cotizacion_id} ya estaba aprobada, omitiendo WhatsApp duplicado")
+            logger.info(f"handle_aprobacion: cot {cotizacion_id} ya aprobada, omitiendo duplicado")
             db.add(MensajeInterno(
                 solicitud_id=solicitud_id,
                 origen="agente",
-                contenido="ℹ️ Cotización ya estaba aprobada por el cliente. No se reenvió WhatsApp.",
+                contenido="ℹ️ Cotización ya estaba aprobada. No se reenvió.",
                 tipo_contenido="accion",
             ))
             await db.commit()
@@ -62,17 +60,40 @@ async def handle_aprobacion(
         if cot:
             cot.estado = "aprobada"
 
+        # Enviar por email (stub)
+        if email_dest:
+            await enviar_cotizacion_email.ainvoke({
+                "cotizacion_id": cotizacion_id,
+                "email": email_dest,
+                "nombre_destinatario": nombre_dest,
+                "numero_cotizacion": numero_cotizacion,
+            })
+            texto_wa = (
+                f"¡Su cotización formal *{numero_cotizacion}* ya está lista! "
+                f"La enviamos al correo *{email_dest}*. "
+                f"Quedamos atentos a sus comentarios. 📧"
+            )
+        else:
+            logger.warning(f"handle_aprobacion sol={solicitud_id}: sin email_destinatario, no se envía por correo")
+            texto_wa = (
+                f"Su cotización *{numero_cotizacion}* ha sido procesada. "
+                f"En breve recibirá el documento formal. 📋"
+            )
+
+        if respuesta:
+            texto_wa += f"\n\n_{respuesta}_"
+
         db.add(MensajeInterno(
             solicitud_id=solicitud_id,
             origen="agente",
-            contenido=f"✅ Confirmación enviada al cliente por WhatsApp:\n\"{texto_wa}\"",
+            contenido=f"✅ Cotización aprobada — PDF enviado a {email_dest or 'sin correo registrado'}.\nWA al cliente: \"{texto_wa}\"",
             tipo_contenido="accion",
         ))
         await db.commit()
 
     wa = WhatsAppClient()
     await wa.send_text(phone, texto_wa)
-    logger.info(f"Aprobación enviada por WhatsApp a {phone} — cot {numero_cotizacion}")
+    logger.info(f"Notificación WA enviada a {phone} — cot {numero_cotizacion} aprobada")
 
 
 async def handle_modificacion(

@@ -33,27 +33,30 @@ async def calcular_cotizacion(
     idioma_origen: str = "español",
     ubicacion: str = "",
     horario: str = "",
+    exento_iva: bool = None,
     state: Annotated[dict, InjectedState] = None,
 ) -> str:
     """
     Consulta las tarifas reales de la base de datos y crea un borrador de cotización numerado.
     Devuelve un JSON con las líneas de precio, subtotal, IVA y total.
 
-    Llama esta herramienta cuando ya tienes TODOS los datos del servicio recopilados,
-    incluyendo obligatoriamente las fechas del evento.
+    Llama esta herramienta cuando ya tienes TODOS los datos obligatorios:
+    tipo_servicio, idioma, fechas, horario, lugar, horas/día, email destinatario, nombre, cargo, IVA.
 
     tipo_servicio: interpretacion_simultanea_presencial | interpretacion_simultanea_virtual |
                    interpretacion_consecutiva | traduccion_documentos | transcripcion
     idioma_destino: idioma destino (ej: "inglés", "francés", "portugués").
     idioma_origen: idioma origen, default "español".
     cantidad: para interpretación = horas POR DÍA (no el total). Traducción = palabras. Transcripción = minutos.
-    fecha_inicio: fecha de inicio del evento en formato YYYY-MM-DD (ej: "2026-05-20"). OBLIGATORIO.
-    fecha_fin: fecha de fin del evento en formato YYYY-MM-DD. Si es un solo día, igual a fecha_inicio.
+    fecha_inicio: fecha de inicio en formato YYYY-MM-DD. OBLIGATORIO.
+    fecha_fin: fecha de fin en formato YYYY-MM-DD. Igual a fecha_inicio si es un solo día.
     num_interpretes: intérpretes simultáneos. Siempre 2 si la sesión supera 1.5 horas.
     num_receptores: receptores de simultánea necesarios (0 si no aplica).
     num_dias: días de duración del evento (para cálculo de equipos).
     ubicacion: ciudad y lugar del evento (para detectar recargo fuera de Bogotá).
-    horario: horario del evento tal como lo indicó el cliente (ej: "8am a 5pm", "9:00 a 13:00").
+    horario: horario del evento (ej: "8am a 5pm").
+    exento_iva: True si el cliente es organismo internacional exento de IVA. False si es nacional.
+                Si no se pasa, se usa el valor guardado en DB del cliente.
     """
     from src.services.cotizacion import calcular_borrador
 
@@ -79,6 +82,7 @@ async def calcular_cotizacion(
         horario=horario or state.get("horario", ""),
         fecha_inicio=fecha_inicio,
         fecha_fin=fecha_fin,
+        exento_iva_override=exento_iva,
     )
 
     if result.get("error"):
@@ -95,15 +99,19 @@ async def calcular_cotizacion(
 @tool
 async def enviar_cotizacion(
     cotizacion_id: int,
-    mensaje_acompanamiento: str = "",
     state: Annotated[dict, InjectedState] = None,
 ) -> str:
     """
-    Genera el PDF de la cotización y lo envía al cliente por WhatsApp.
-    Llama esta herramienta DESPUÉS de calcular_cotizacion y de presentar el resumen.
+    Genera el PDF de la cotización, lo sube a S3 para revisión interna y notifica al cliente
+    por WhatsApp que su cotización está en proceso.
+
+    El PDF NO se envía al cliente directamente. Se envía al correo del destinatario SOLO
+    cuando María Luisa lo apruebe desde el panel de Aprobaciones.
+
+    Llama esta herramienta DESPUÉS de calcular_cotizacion y de tener todos los datos obligatorios:
+    email destinatario, nombre, cargo (deben estar en el state).
 
     cotizacion_id: ID retornado por calcular_cotizacion.
-    mensaje_acompanamiento: Texto breve que acompaña el PDF (máx 2 oraciones).
     """
     from src.services.documento import docx_a_pdf, generar_word
     from src.storage.s3 import upload_cotizacion
@@ -112,6 +120,11 @@ async def enviar_cotizacion(
     phone = state.get("phone", "") if state else ""
     if not phone:
         return json.dumps({"error": True, "mensaje": "No hay número de teléfono en estado."}, ensure_ascii=False)
+
+    # Datos del destinatario desde state
+    email_dest = state.get("email", "") if state else ""
+    nombre_dest = state.get("nombre", "") if state else ""
+    cargo_dest = state.get("cargo", "") if state else ""
 
     # 1. Obtener cotización completa con líneas, cliente y contacto
     async with async_session_factory() as db:
@@ -132,40 +145,31 @@ async def enviar_cotizacion(
     numero = cot.numero_cotizacion
 
     try:
-        # 2. Generar Word → PDF
-        logger.info(f"Generando Word para cotización {numero}...")
+        # 2. Generar Word → PDF (para revisión interna y envío futuro por email)
+        logger.info(f"Generando PDF para cotización {numero}...")
         docx_bytes = await generar_word(cotizacion_id)
-
-        logger.info(f"Convirtiendo a PDF con LibreOffice...")
         pdf_bytes = docx_a_pdf(docx_bytes)
 
-        # 3. Subir a S3
-        logger.info(f"Subiendo PDF a S3...")
+        # 3. Subir a S3 (María Luisa puede previsualizar en el panel)
         url = await upload_cotizacion(cotizacion_id, pdf_bytes, numero)
 
-        # 4. Enviar por WhatsApp
-        caption = mensaje_acompanamiento or (
-            "Adjunto encontrará su cotización formal. "
-            "Quedamos atentos a sus comentarios."
-        )
+        # 4. Notificar al cliente por WhatsApp — SIN enviar el PDF
+        email_display = f" al correo *{email_dest}*" if email_dest else ""
         wa = WhatsAppClient()
-        await wa.send_document(
-            to=phone,
-            document_url=url,
-            filename=f"{numero}.pdf",
-            caption=caption,
+        await wa.send_text(
+            phone,
+            f"Estamos preparando su cotización formal *{numero}*. "
+            f"En cuanto esté lista se la enviaremos{email_display}. Le notificaremos por aquí. 👍"
         )
-        logger.info(f"Cotización {numero} enviada a {phone}")
+        logger.info(f"Notificación WA enviada a {phone} — cotización {numero} en revisión interna")
 
-        # 5. Marcar como enviada + registrar mensaje + crear solicitud de aprobación
+        # 5. Guardar en DB + crear solicitud en panel de aprobaciones
         conversacion_id = state.get("conversacion_id") if state else None
         cliente_id = state.get("cliente_id") if state else None
-        contacto_id = state.get("contacto_id") if state else None
         nombre = state.get("nombre", "") if state else ""
         empresa = state.get("empresa", "") if state else ""
 
-        # Construir resumen de líneas ANTES de abrir session 2
-        # (cot está en memoria con selectinload, no necesita sesión activa)
+        # Construir resumen de líneas ANTES de abrir sesión (cot cargado con selectinload)
         _lineas_texto = []
         for _linea in cot.lineas:
             _nombre_item = (
@@ -195,24 +199,25 @@ async def enviar_cotizacion(
 
         _cliente_label_pre = (
             (cot.cliente.nombre_empresa if cot.cliente else None)
-            or (cot.contacto.nombre_completo if cot.contacto else None)
-            or f"cliente {cliente_id}"
+            or nombre_dest or f"cliente {cliente_id}"
         )
         _subtotal_fmt = f"${cot.subtotal:,.0f}".replace(",", ".") if cot.subtotal else "—"
         _iva_fmt = f"${cot.iva:,.0f}".replace(",", ".") if cot.iva else "—"
         _total_fmt = f"${cot.total:,.0f}".replace(",", ".") if cot.total else "—"
         _iva_linea = f"  IVA (19%):    {_iva_fmt}\n" if not cot.exento_iva else "  (Exento de IVA)\n"
         _ubicacion_linea = f"📍 {cot.ubicacion_evento}\n" if cot.ubicacion_evento else ""
+        _dest_linea = f"📧 Destinatario: {nombre_dest}" + (f" ({cargo_dest})" if cargo_dest else "") + f" — {email_dest}\n" if nombre_dest or email_dest else ""
 
         _contenido_mensaje = (
-            f"Acabo de enviar la cotización {numero} a {_cliente_label_pre}.\n\n"
+            f"Nueva cotización {numero} lista para revisión — {_cliente_label_pre}.\n\n"
+            f"{_dest_linea}"
             f"{_ubicacion_linea}"
             f"📋 Servicios cotizados:\n{_resumen_lineas}\n\n"
             f"💰 Resumen de valor:\n"
             f"  Subtotal:     {_subtotal_fmt}\n"
             f"{_iva_linea}"
             f"  Total:        {_total_fmt}\n\n"
-            f"Revisa precios y condiciones. Puedes aprobar, ajustar el pricing o rechazar."
+            f"Aprueba para enviar al cliente, modifica precios o rechaza."
         )
 
         async with async_session_factory() as db:
@@ -224,13 +229,11 @@ async def enviar_cotizacion(
                 db.add(Mensaje(
                     conversacion_id=conversacion_id,
                     origen="agente",
-                    contenido=f"Cotización {numero} enviada",
-                    tipo_contenido="documento",
-                    url_archivo=url,
+                    contenido=f"Cotización {numero} en revisión interna",
+                    tipo_contenido="texto",
                 ))
 
-            # Crear solicitud automática para que María Luisa vea en Aprobaciones
-            # Poblar datos_formulario desde DB (no del state que puede estar vacío)
+            # Datos completos para el panel (incluye email/nombre/cargo del destinatario)
             cliente_db = cot.cliente
             contacto_db = cot.contacto
             primera_linea = cot.lineas[0] if cot.lineas else None
@@ -239,12 +242,20 @@ async def enviar_cotizacion(
             nombre_db = contacto_db.nombre_completo if contacto_db else (nombre or "")
             cliente_label = empresa_db or nombre_db or f"cliente {cliente_id}"
 
+            # email/nombre/cargo del destinatario: prioridad state > contacto DB
+            email_final = email_dest or (contacto_db.email if contacto_db else None)
+            nombre_final = nombre_dest or nombre_db
+            cargo_final = cargo_dest or (contacto_db.cargo if contacto_db else None)
+
             datos = {
-                "phone": state.get("phone") if state else None,
+                "phone": phone,
                 "empresa": empresa_db,
-                "nombre": nombre_db,
-                "cargo": contacto_db.cargo if contacto_db else None,
-                "email": contacto_db.email if contacto_db else None,
+                "nombre": nombre_final,
+                "cargo": cargo_final,
+                "email": email_final,
+                "email_destinatario": email_final,
+                "nombre_destinatario": nombre_final,
+                "cargo_destinatario": cargo_final,
                 "ubicacion": cot.ubicacion_evento,
                 "url_pdf": url,
             }
@@ -284,12 +295,11 @@ async def enviar_cotizacion(
                 solicitud = existing
                 await db.flush()
 
-                # Marcar la cotización anterior como reemplazada
                 if cotizacion_anterior_id and cotizacion_anterior_id != cotizacion_id:
                     cot_anterior = await db.get(Cotizacion, cotizacion_anterior_id)
                     if cot_anterior and cot_anterior.estado not in ("aprobada",):
                         cot_anterior.estado = "negociando"
-                        logger.info(f"Cotización anterior {cotizacion_anterior_id} marcada como negociando (reemplazada por {cotizacion_id})")
+                        logger.info(f"Cotización anterior {cotizacion_anterior_id} reemplazada por {cotizacion_id}")
             else:
                 solicitud = SolicitudAgente(
                     cliente_id=cliente_id,
@@ -300,16 +310,15 @@ async def enviar_cotizacion(
                     prioridad="normal",
                     titulo=f"Cotizaciones de {cliente_label}",
                     descripcion=(
-                        f"Cotizaciones del agente al cliente {cliente_label}. "
-                        f"Revisar precios, condiciones y confirmar si procede."
+                        f"Cotización del agente para {cliente_label}. "
+                        f"Revisar y aprobar para enviar al cliente por email."
                     ),
                     datos_formulario=datos,
                 )
                 db.add(solicitud)
-                await db.flush()  # obtener solicitud.id antes del commit
+                await db.flush()
 
-            # Mensaje inicial del agente en el chat interno (pre-construido antes de esta sesión)
-            prefijo = "🔄 *Cotización actualizada* — el cliente solicitó cambios.\n\n" if es_actualizacion else ""
+            prefijo = "🔄 *Cotización actualizada* — cliente solicitó cambios.\n\n" if es_actualizacion else ""
             try:
                 db.add(MensajeInterno(
                     solicitud_id=solicitud.id,
@@ -318,7 +327,7 @@ async def enviar_cotizacion(
                     tipo_contenido="texto",
                 ))
             except Exception as e_msg:
-                logger.error(f"Error creando MensajeInterno para solicitud {solicitud.id}: {e_msg}", exc_info=True)
+                logger.error(f"Error creando MensajeInterno sol={solicitud.id}: {e_msg}", exc_info=True)
 
             await db.commit()
             await db.refresh(solicitud)
@@ -334,11 +343,44 @@ async def enviar_cotizacion(
         }, ensure_ascii=False)
 
     except Exception as e:
-        logger.error(f"Error enviando cotización {cotizacion_id}: {e}", exc_info=True)
+        logger.error(f"Error procesando cotización {cotizacion_id}: {e}", exc_info=True)
         return json.dumps({
             "error": True,
-            "mensaje": f"Error generando o enviando el PDF: {e}. Usa crear_solicitud(tipo='consulta_precio') para escalar.",
+            "mensaje": f"Error generando el PDF: {e}. Usa crear_solicitud(tipo='consulta_precio') para escalar.",
         }, ensure_ascii=False)
+
+
+@tool
+async def enviar_cotizacion_email(
+    cotizacion_id: int,
+    email: str,
+    nombre_destinatario: str,
+    numero_cotizacion: str,
+) -> str:
+    """
+    [STUB — integración email pendiente]
+    Registra la intención de enviar el PDF de cotización por correo electrónico.
+    La integración real (SendGrid / AWS SES) se conectará aquí en una fase futura.
+
+    Llamar SOLO desde handle_aprobacion cuando María Luisa aprueba.
+    No llamar desde el agente directamente.
+
+    cotizacion_id: ID de la cotización aprobada.
+    email: correo del destinatario.
+    nombre_destinatario: nombre completo a quien va dirigida.
+    numero_cotizacion: número de la cotización (ej: COT-20260419-001).
+    """
+    logger.info(
+        f"[EMAIL STUB] Cotización {numero_cotizacion} → {email} "
+        f"para {nombre_destinatario} (cot_id={cotizacion_id})"
+    )
+    return json.dumps({
+        "enviado": True,
+        "email": email,
+        "destinatario": nombre_destinatario,
+        "numero_cotizacion": numero_cotizacion,
+        "nota": "Integración email pendiente — stub registrado",
+    }, ensure_ascii=False)
 
 
 @tool
