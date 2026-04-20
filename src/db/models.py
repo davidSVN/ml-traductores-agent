@@ -160,6 +160,7 @@ class Cotizacion(Base):
     fecha_cierre: Mapped[Optional[datetime.date]] = mapped_column(Date, nullable=True)
     razon_perdida: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     numero_orden_compra: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    incluir_terminos_corporativos: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)
     descripcion_generada: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     notas_internas: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     cotizacion_padre_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("cotizaciones.id"), nullable=True)

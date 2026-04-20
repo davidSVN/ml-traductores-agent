@@ -116,3 +116,16 @@ export const modificarLineas = (solicitudId: number, data: ModificarLineasPayloa
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data),
   });
+
+export const updateCotizacion = (
+  cotizacionId: number,
+  payload: { incluir_terminos_corporativos?: boolean }
+) =>
+  apiFetch<{ ok: boolean; incluir_terminos_corporativos: boolean }>(
+    `/dashboard/cotizaciones/${cotizacionId}`,
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    }
+  );

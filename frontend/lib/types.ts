@@ -144,6 +144,7 @@ export interface SolicitudDetalle {
   numero_cotizacion: string | null;
   cotizacion_total: number | null;
   cotizacion_estado: string | null;
+  incluir_terminos_corporativos: boolean | null;
 }
 
 export interface MensajeInterno {

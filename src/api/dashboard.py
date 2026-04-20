@@ -205,6 +205,7 @@ class SolicitudDetalleOut(BaseModel):
     numero_cotizacion: Optional[str]
     cotizacion_total: Optional[float]
     cotizacion_estado: Optional[str]
+    incluir_terminos_corporativos: Optional[bool]
 
 
 class MensajeInternoIn(BaseModel):
@@ -753,6 +754,7 @@ def _build_solicitud_detalle(s: SolicitudAgente) -> SolicitudDetalleOut:
         numero_cotizacion=cot.numero_cotizacion if cot else None,
         cotizacion_total=float(cot.total) if cot and cot.total is not None else None,
         cotizacion_estado=cot.estado if cot else None,
+        incluir_terminos_corporativos=cot.incluir_terminos_corporativos if cot else None,
     )
 
 
@@ -960,6 +962,27 @@ async def update_contacto(
     await db.commit()
     await db.refresh(contacto)
     return ContactoOut.model_validate(contacto)
+
+
+class UpdateCotizacionIn(BaseModel):
+    incluir_terminos_corporativos: Optional[bool] = None
+
+
+@router.patch("/cotizaciones/{cotizacion_id}")
+async def update_cotizacion(
+    cotizacion_id: int,
+    body: UpdateCotizacionIn,
+    db: AsyncSession = Depends(get_db),
+):
+    """Actualiza campos editables de una cotización desde el panel (ej: términos corporativos)."""
+    from fastapi import HTTPException
+    cot = await db.get(Cotizacion, cotizacion_id)
+    if not cot:
+        raise HTTPException(status_code=404, detail="Cotización no encontrada")
+    if body.incluir_terminos_corporativos is not None:
+        cot.incluir_terminos_corporativos = body.incluir_terminos_corporativos
+    await db.commit()
+    return {"ok": True, "incluir_terminos_corporativos": cot.incluir_terminos_corporativos}
 
 
 @router.get("/cotizaciones/{cotizacion_id}/lineas", response_model=list[LineaCotizacionOut])

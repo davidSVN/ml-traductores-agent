@@ -114,11 +114,11 @@ async def generar_word(cotizacion_id: int) -> bytes:
     _replace(doc, "{total}", formato_cop_sin_signo(cot.total))
 
     # ── 4. Condiciones ─────────────────────────────────────────────────────────
-    notas = _generar_notas(cot)
+    condiciones = _generar_condiciones(cot)
     for i in range(3):
-        _replace(doc, f"{{notas_servicio_{i+1}}}", notas[i] if i < len(notas) else "")
-    _replace(doc, "{validez_oferta}", cot.validez_oferta or "30 días calendario")
-    _replace(doc, "{forma_pago}", cot.forma_pago or "50% anticipo, 50% al finalizar")
+        _replace(doc, f"{{notas_servicio_{i+1}}}", condiciones["notas"][i] if i < len(condiciones["notas"]) else "")
+    _replace(doc, "{validez_oferta}", condiciones["validez_oferta"])
+    _replace(doc, "{forma_pago}", condiciones["forma_pago"])
 
     buf = io.BytesIO()
     doc.save(buf)
@@ -314,14 +314,102 @@ def _referencia_servicio(lineas) -> str:
     return l.descripcion_generada or "Servicios lingüísticos"
 
 
-def _generar_notas(cot: Cotizacion) -> list[str]:
-    """Genera las condiciones estándar para el pie de la cotización."""
-    notas = [
-        "♦ Tarifa incluye honorarios profesionales del equipo de intérpretes/traductores.",
-        "♦ Cualquier hora adicional se cotizará por separado según disponibilidad.",
-    ]
-    if cot.es_fuera_de_bogota:
-        notas.append("♦ Tarifa incluye recargo por desplazamiento fuera de Bogotá D.C.")
-    else:
-        notas.append("♦ Servicios prestados en Bogotá D.C.")
-    return notas
+def _detectar_tipo_servicio(cot: Cotizacion) -> dict:
+    """Detecta el tipo de servicio desde las líneas de cotización."""
+    es_presencial = False
+    es_documentos = False
+    for linea in cot.lineas:
+        svc = linea.servicio
+        if not svc:
+            continue
+        nombre = (svc.nombre or "").lower()
+        cat = (svc.categoria or "").lower()
+        if svc.es_presencial:
+            es_presencial = True
+        if (
+            any(kw in nombre or kw in cat for kw in ["document", "traducc", "escrit"])
+            or svc.unidad_cobro in ("por_palabra", "por_pagina")
+        ):
+            es_documentos = True
+    return {
+        "es_presencial": es_presencial,
+        "es_documentos": es_documentos,
+        "es_fuera_de_bogota": bool(cot.es_fuera_de_bogota),
+        "incluir_terminos_corporativos": getattr(cot, "incluir_terminos_corporativos", False),
+    }
+
+
+_FORMA_PAGO_CORPORATIVA = (
+    "Anticipo del 50% antes del inicio del evento.\n"
+    "Saldo 50% Contado Comercial al finalizar el evento contra presentación de informe y factura.\n\n"
+    "Términos y condiciones:\n"
+    "- INCLUYE COORDINADOR ASIGNADO.\n"
+    "- La presente oferta no incluye ningún suministro no especificado dentro de esta.\n"
+    "- Toda cancelación una vez aceptada la oferta conlleva al pago del 50%.\n"
+    "- No se asigna cotización parcial, incluye: Intérpretes simultáneos, "
+    "Intérpretes de señas, equipos de traducción.\n"
+    "- Cronograma: Montaje y pruebas: Desde 24 horas antes del inicio del evento.\n"
+    "- Pólizas: A solicitud del cliente."
+)
+
+_VALIDEZ_INTERPRETACION = (
+    "CONFIRMACIÓN ___ días antes del evento con el fin de reservar "
+    "la agenda de los intérpretes asignados."
+)
+
+
+def _generar_condiciones(cot: Cotizacion) -> dict:
+    """
+    Genera notas, validez y forma de pago según el tipo de servicio.
+    Retorna: {"notas": [s1, s2, s3], "validez_oferta": str, "forma_pago": str}
+    """
+    tipo = _detectar_tipo_servicio(cot)
+
+    forma_pago_base = cot.forma_pago or "50% anticipo, 50% al finalizar"
+    forma_pago = _FORMA_PAGO_CORPORATIVA if tipo["incluir_terminos_corporativos"] else forma_pago_base
+
+    if tipo["es_documentos"]:
+        notas = [
+            (
+                "Proceso de entrega:\n"
+                "- Primera entrega para consideración del cliente, se reciben los comentarios con control de cambios.\n"
+                "- Si hay comentarios se hacen ajustes (de forma, unificación de vocabulario, etc)\n"
+                "- Segunda y última entrega del documento ajustado.\n"
+                "- NUESTRO EQUIPO DE TRABAJO ESTÁ CONFORMADO POR TRADUCTORES OFICIALES DEBIDAMENTE ACREDITADOS.\n"
+                "- Entrega del documento en Word o mismo formato si el archivo recibido es editable."
+            ),
+            "",
+            "",
+        ]
+        validez = cot.validez_oferta or "30 días calendario"
+
+    elif tipo["es_presencial"]:
+        nota_equipos = (
+            "- Un día de equipos se entiende de ocho horas o cualquier fracción del mismo\n"
+            "- Transporte/Instalación/desmantelamiento (Incluido)\n"
+            "- Montaje mismo día 6am"
+        )
+        nota_fuera = (
+            "- Abono del 25%\n"
+            "- Transporte: Viáticos: ___________"
+        ) if tipo["es_fuera_de_bogota"] else ""
+
+        notas = [
+            (
+                "Para intervenciones tipo conferencia se requiere la prestación del servicio de "
+                "interpretación por un equipo de dos intérpretes en cabina a partir de 1.5 horas de servicio."
+            ),
+            nota_equipos,
+            nota_fuera,
+        ]
+        validez = cot.validez_oferta or _VALIDEZ_INTERPRETACION
+
+    else:  # virtual / remota (default)
+        notas = [
+            "Conexión 30 minutos antes del inicio del evento",
+            "En caso de requerir conexión antes o pruebas anteriores favor adicionar $400.000 más IVA",
+            "",
+        ]
+        validez = cot.validez_oferta or _VALIDEZ_INTERPRETACION
+
+    return {"notas": notas, "validez_oferta": validez, "forma_pago": forma_pago}

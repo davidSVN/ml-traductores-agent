@@ -364,7 +364,6 @@ async def enviar_cotizacion_email(
     Llamar SOLO desde handle_aprobacion cuando María Luisa aprueba.
     No llamar desde el agente directamente.
     """
-    import httpx
     import resend
 
     from src.config import get_settings
@@ -375,27 +374,14 @@ async def enviar_cotizacion_email(
         logger.error("enviar_cotizacion_email: RESEND_API_KEY no configurada")
         return json.dumps({"enviado": False, "error": "RESEND_API_KEY no configurada"}, ensure_ascii=False)
 
-    # 1. Obtener url_pdf desde SolicitudAgente.datos_formulario
-    async with async_session_factory() as db:
-        result = await db.execute(
-            select(SolicitudAgente)
-            .where(SolicitudAgente.cotizacion_id == cotizacion_id)
-            .where(SolicitudAgente.tipo == "aprobar_cotizacion")
-            .order_by(SolicitudAgente.created_at.desc())
-            .limit(1)
-        )
-        sol = result.scalar_one_or_none()
-
-    url_pdf = (sol.datos_formulario or {}).get("url_pdf") if sol else None
-    if not url_pdf:
-        logger.error(f"enviar_cotizacion_email: sin url_pdf para cot {cotizacion_id}")
-        return json.dumps({"enviado": False, "error": "No se encontró el PDF en S3"}, ensure_ascii=False)
-
-    # 2. Descargar PDF desde S3 (presigned URL)
-    async with httpx.AsyncClient(timeout=30) as client:
-        r = await client.get(url_pdf)
-        r.raise_for_status()
-        pdf_bytes = r.content
+    # 1. Regenerar PDF desde DB (refleja estado actual, incl. incluir_terminos_corporativos)
+    from src.services.documento import generar_word, docx_a_pdf
+    try:
+        docx_bytes = await generar_word(cotizacion_id)
+        pdf_bytes = docx_a_pdf(docx_bytes)
+    except Exception as e:
+        logger.error(f"enviar_cotizacion_email: error generando PDF para cot {cotizacion_id}: {e}")
+        return json.dumps({"enviado": False, "error": f"Error generando PDF: {e}"}, ensure_ascii=False)
 
     # 3. Enviar vía Resend (HTTPS — sin SMTP)
     resend.api_key = settings.resend_api_key

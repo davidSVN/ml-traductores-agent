@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useSolicitudDetalle } from "@/lib/hooks/useSolicitudDetalle";
-import { updateClientePricing, updateContacto } from "@/lib/api";
+import { updateClientePricing, updateContacto, updateCotizacion } from "@/lib/api";
 import type { SolicitudDetalle, UpdatePricingPayload } from "@/lib/types";
 
 // ─── Visor PDF modal ───────────────────────────────────────────────────────────
@@ -347,6 +347,32 @@ export function SolicitudInfoPanel({ solicitudId }: Props) {
               <p className="text-text-primary text-lg font-bold">
                 ${solicitud.cotizacion_total.toLocaleString("es-CO")}
               </p>
+            )}
+            {/* Toggle: términos corporativos */}
+            {solicitud.cotizacion_id && (
+              <div className="flex items-center justify-between pt-1">
+                <span className="text-xs text-text-muted" title="Incluye coordinador asignado, política de cancelación 50%, cronograma 24h y más">
+                  Términos corporativos
+                </span>
+                <button
+                  onClick={async () => {
+                    await updateCotizacion(solicitud.cotizacion_id!, {
+                      incluir_terminos_corporativos: !solicitud.incluir_terminos_corporativos,
+                    });
+                    await mutate();
+                  }}
+                  className={`relative w-8 h-4 rounded-full transition-colors focus:outline-none ${
+                    solicitud.incluir_terminos_corporativos ? "bg-accent-purple" : "bg-border"
+                  }`}
+                  title={solicitud.incluir_terminos_corporativos ? "Desactivar términos corporativos" : "Activar términos corporativos en el PDF"}
+                >
+                  <span
+                    className={`absolute top-0.5 left-0.5 w-3 h-3 bg-white rounded-full transition-transform ${
+                      solicitud.incluir_terminos_corporativos ? "translate-x-4" : ""
+                    }`}
+                  />
+                </button>
+              </div>
             )}
           </div>
         </section>
