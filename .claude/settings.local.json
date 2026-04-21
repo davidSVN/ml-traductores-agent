@@ -81,7 +81,12 @@
       "Bash(alembic revision *)",
       "Bash(\"C:\\\\Users\\\\david.vasquez\\\\AppData\\\\Local\\\\Programs\\\\Python\\\\Python312\\\\python.exe\" -m alembic upgrade head)",
       "Bash(\"C:\\\\Users\\\\david.vasquez\\\\AppData\\\\Local\\\\Programs\\\\Python\\\\Python312\\\\Scripts\\\\alembic.exe\" upgrade *)",
-      "Bash(\"/c/Users/david.vasquez/AppData/Local/Python/pythoncore-3.14-64/Scripts/alembic.exe\" upgrade *)"
+      "Bash(\"/c/Users/david.vasquez/AppData/Local/Python/pythoncore-3.14-64/Scripts/alembic.exe\" upgrade *)",
+      "Bash(findstr \":3000 \")",
+      "Bash(findstr LISTENING)",
+      "Bash(taskkill /PID 7348 /F)",
+      "Bash(taskkill //PID 7348 //F)",
+      "Bash(findstr \":8000 \")"
     ]
   }
 }
