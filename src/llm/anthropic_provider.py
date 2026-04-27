@@ -14,7 +14,7 @@ settings = get_settings()
 class AnthropicProvider:
     def __init__(self) -> None:
         self.llm = ChatAnthropic(
-            model="claude-sonnet-4-6",
+            model="claude-haiku-4-5-20251001",
             api_key=settings.anthropic_api_key,
             max_tokens=4096,
         )
